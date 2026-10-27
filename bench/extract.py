@@ -4,8 +4,10 @@
 Every derived number (rates, medians, IQRs) is computed in Wolfram from these raw fields
 (PROTOCOL.md section 7). Rows are kept as {arm, round, metric, rep, batch, stream, load1_start,
 t_send, t_first, t_last, prompt_tokens, completion_tokens, busy_retries, ok}. Warmup rows are
-dropped here (they stay in the raw files), and so are rows of cells voided under amendment A2
-(results/voids.jsonl). Timestamps are printed with full repr precision.
+dropped here (they stay in the raw files), and so are rows of cells voided under amendments A2/A4
+(results/voids.jsonl; a record counts only if its reason names the kthread or a non-empty
+offender list, A4(b)). Of several non-void tries of one cell only the lowest try is kept (A4(c)).
+Timestamps are printed with full repr precision.
 """
 import glob
 import json
@@ -13,24 +15,43 @@ import os
 import sys
 
 REPO = sys.argv[1]
+
+
+def honoured(v):
+    why = v.get("reason") or "kthread"  # A2-era records without a reason were kthread voids
+    return "kthread" in why or ": [" in why
+
+
 void = set()
 if os.path.exists(REPO + "/results/voids.jsonl"):
-    void = {json.loads(l)["cell_run"] for l in open(REPO + "/results/voids.jsonl") if l.strip()}
+    void = {v["cell_run"] for v in map(json.loads, filter(str.strip, open(REPO + "/results/voids.jsonl")))
+            if honoured(v)}
+raw = [json.loads(line) for path in sorted(glob.glob(REPO + "/results/raw/*.jsonl")) for line in open(path)]
+first = {}  # cell without its try suffix -> lowest non-void try number
+for r in raw:
+    cr = r.get("cell_run")
+    if cr and cr not in void:
+        cell, _, n = cr.rpartition("-t")
+        first[cell] = min(first.get(cell, int(n)), int(n))
 rows = []
-for path in sorted(glob.glob(REPO + "/results/raw/*.jsonl")):
-    for line in open(path):
-        r = json.loads(line)
-        if r["warmup"] or r["arm"] == "STUB" or r.get("cell_run") in void:
+for r in raw:
+    cr = r.get("cell_run")
+    if r["warmup"] or r["arm"] == "STUB" or cr in void:
+        continue
+    if cr:
+        cell, _, n = cr.rpartition("-t")
+        if int(n) != first[cell]:
             continue
-        u = r.get("usage") or {}
-        ok = (r["error"] is None and r["http_status"] == 200 and r["t_first"] is not None
-              and u.get("completion_tokens") is not None)
-        def num(x):
-            return "Missing[]" if x is None else repr(x).replace("e", "*^")
-        rows.append("{%s}" % ", ".join([
-            json.dumps(r["arm"]), json.dumps(r["round"]), json.dumps(r["metric"]), str(r["rep"]),
-            json.dumps(r["batch_id"]), str(r["stream_index"]), num(r["load1_start"]),
-            num(r["t_send"]), num(r["t_first"]), num(r["t_last"]),
-            num(u.get("prompt_tokens")), num(u.get("completion_tokens")),
-            str(r.get("busy_retries", 0)), "True" if ok else "False"]))
+    u = r.get("usage") or {}
+    ok = (r["error"] is None and r["http_status"] == 200 and r["t_first"] is not None
+          and u.get("completion_tokens") is not None)
+
+    def num(x):
+        return "Missing[]" if x is None else repr(x).replace("e", "*^")
+    rows.append("{%s}" % ", ".join([
+        json.dumps(r["arm"]), json.dumps(r["round"]), json.dumps(r["metric"]), str(r["rep"]),
+        json.dumps(r["batch_id"]), str(r["stream_index"]), num(r["load1_start"]),
+        num(r["t_send"]), num(r["t_first"]), num(r["t_last"]),
+        num(u.get("prompt_tokens")), num(u.get("completion_tokens")),
+        str(r.get("busy_retries", 0)), "True" if ok else "False"]))
 print("h2hRows = {\n" + ",\n".join(rows) + "\n};")

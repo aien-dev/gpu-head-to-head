@@ -47,6 +47,7 @@ esac
 SRV_CPUS=5-9,15-17,19
 SRV_LIST=" 5 6 7 8 9 15 16 17 19 "
 CLI_CPUS=12-13
+MON_CPU=11   # coremon.py (A4), an A725 core outside the server and client sets
 export H2H_SRV_CPUS=$SRV_CPUS H2H_CLI_CPUS=$CLI_CPUS
 KT=1671   # nvidia-modeset kthread; never reniced or pinned during the study (A2)
 ktpsr() { awk '{print $39}' /proc/$KT/stat 2>/dev/null || echo NA; }
@@ -77,9 +78,9 @@ start_server() {
   case $ARM in
     OURS)
       ( cd /home/drakestapleton/.local/state/aien-q36/bin-19173f9e && \
-        env AIEN_Q36_STROKE=1 Q36_BATCH_BIN=bin-19173f9e AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock \
+        exec env AIEN_Q36_STROKE=1 Q36_BATCH_BIN=bin-19173f9e AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock \
             AIEN_GB10_LOCK_HELD=1 \
-        exec taskset -c $SRV_CPUS ./aien-serve-http --engine omega --model-dir "$MODEL" --port 18190 --max-context 49152 \
+        taskset -c $SRV_CPUS ./aien-serve-http --engine omega --model-dir "$MODEL" --port 18190 --max-context 49152 \
              --max-tokens-cap 16384 --thinking off --batch-slots 8 ) < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
     VLLM|VLLM4)
@@ -123,21 +124,39 @@ ready() {
 }
 
 cell() {  # metric concurrency max_tokens promptfile [extra]
-  # A2: a cell during which the kthread was sampled on a server core is void and re-run (<=3 tries)
+  # A2: a cell is VOID and re-run (<=3 tries) when the nvidia-modeset kthread was sampled on a server
+  # core, or a process outside HeadToHead used >20% of one server core (bench/coremon.py)
   local metric=$1 c=$2 mt=$3 pf=$4; shift 4
-  local try t0 t1 hit
+  local try t0 t1 hit cm cmrc why off
+  mkdir -p "$LOGD/coremon"
   for try in 1 2 3; do
     [ -e "$LOGD/TIMEOUT" ] && return
     wait_quiet || { echo "$(ts) cell $metric ran without a quiet window (LOADED)" >> "$LOGD/session.log"; }
     local id="$ARM-$ROUND-$metric-t$try"
+    taskset -c $MON_CPU python3 "$REPO/bench/coremon.py" --cpus $SRV_CPUS --exclude-tree $(mytree) \
+      --out "$LOGD/coremon/$id.jsonl" & cm=$!
     t0=$(date +%s)
     taskset -c $CLI_CPUS python3 "$REPO/bench/bench.py" --port $PORT --model $MID --arm $ARM --round $ROUND --metric "$metric" \
       --prompts "$REPO/prompts/$pf" --concurrency $c --max-tokens $mt --out "$OUT" --cell-run "$id" "$@" 2>> "$LOGD/client.log"
+    kill -TERM $cm; wait $cm; cmrc=$?
     sleep 2; t1=$(date +%s)
     hit=$(awk -v a=$t0 -v b=$t1 -v s="$SRV_LIST" '$1>=a && $1<=b && index(s, " "$5" ") {print $5; exit}' "$LOGD/mem.tsv")
-    if [ -z "$hit" ]; then return; fi
-    echo "{\"cell_run\": \"$id\", \"kthread_psr\": $hit, \"t0\": $t0, \"t1\": $t1}" >> "$REPO/results/voids.jsonl"
-    echo "$(ts) VOID $id: nvidia-modeset kthread on server core $hit" >> "$LOGD/session.log"
+    why=
+    [ -n "$hit" ] && why="nvidia-modeset kthread on server core $hit"
+    # A4: only a coremon summary that names offenders voids the cell; a monitor that wrote no
+    # summary is recorded as "foreign check NOT_RUN" for that cell, never as a void
+    off=$(python3 -c 'import json,sys
+s=[json.loads(l) for l in open(sys.argv[1]) if "\"summary\"" in l]
+print(json.dumps(s[-1]["offenders"]) if s else "NOSUMMARY")' "$LOGD/coremon/$id.jsonl" 2>/dev/null || echo NOSUMMARY)
+    case $off in
+      NOSUMMARY) echo "$(ts) $id foreign-process check NOT_RUN: coremon exit $cmrc, no summary" >> "$LOGD/session.log" ;;
+      '[]') ;;
+      *) why="${why:+$why; }foreign process >20% of a server core: $(echo "$off" | cut -c1-300)" ;;
+    esac
+    if [ -z "$why" ]; then return; fi
+    python3 -c 'import json,sys; print(json.dumps({"cell_run": sys.argv[1], "reason": sys.argv[2], "t0": int(sys.argv[3]), "t1": int(sys.argv[4])}))' \
+      "$id" "$why" $t0 $t1 >> "$REPO/results/voids.jsonl"
+    echo "$(ts) VOID $id: $why" >> "$LOGD/session.log"
   done
 }
 

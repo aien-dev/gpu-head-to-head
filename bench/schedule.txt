@@ -7,6 +7,6 @@ LLAMA:R1
 LLAMA:R2
 VLLM:R2
 OURS:R2
-# optional BF16 reference arm (A2)
-LLAMA16:R1
-LLAMA16:R2
+# optional BF16 reference arm (A2): deferred by A3(e)/A4(d), NOT_RUN tonight
+#LLAMA16:R1
+#LLAMA16:R2

@@ -209,3 +209,25 @@ on this one Spark, on the stated date and load.
   protocol.
   (e) GPU-lock priority (Main, 2026-10-27): after HeadToHead's FP8 sessions, OmegaVfio and the C1
   lanes take the lock before any queued A2/A3 arm.
+- **A4 (2026-10-27, HeadToHead after restart; written before any OURS/LLAMA cell and before any
+  VLLM number was read):**
+  (a) **In-cell foreign-process check.** During every timed cell `bench/coremon.py` (pinned to
+  A725 core 11) samples the server cores every second; a process outside the session's trees with
+  more than 20% of one server core over the cell voids it, like the kthread rule of section 8.
+  Only a coremon summary that names offenders voids a cell. A monitor that wrote no summary makes
+  that cell's foreign check NOT_RUN (logged in `session.log`), not a void.
+  (b) **Harness defects found, with their effect.** OURS R1 attempt 1 (02:09:51Z) never started a
+  server: `run_arm.sh` ran `env VARS... exec taskset ...`, and `exec` is a shell builtin (`env:
+  'exec': No such file or directory`). No GPU work, no rows; log kept in
+  `results/logs/attempts/OURS-R1-a1-launch-bug/`. Fixed to `exec env VARS... taskset ...` and OURS
+  R1 re-runs after VLLM R1 (the only change in session order). The VLLM R1 session ran from a
+  snapshot in which `MON_CPU` was unset: `taskset -c  python3 coremon.py` failed with exit 1, so
+  every VLLM R1 try was written to `voids.jsonl` with an empty foreign-process reason. Those
+  records are not voids under (a); `extract.py` honours a void record only when its reason names
+  the kthread or a non-empty offender list. The session was not killed (rule: a running session is
+  never disturbed); its foreign check is NOT_RUN for every cell, and that is stated in RESULTS.
+  (c) **One try per cell.** When re-runs leave several non-void tries of one cell, only the lowest
+  numbered non-void try is used; the others stay in the raw file.
+  (d) **Order and lock priority (A3(e)).** The FP8 sessions OURS, VLLM, LLAMA x R1, R2 run; LLAMA16
+  (A2) and the A3 arms are not started tonight. They are reported NOT_RUN (deferred: GPU-lock
+  priority for OmegaVfio W0 and C1 per A3(e)), with the BF16 GGUF kept for a later window.
