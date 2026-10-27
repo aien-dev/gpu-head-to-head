@@ -66,7 +66,7 @@ with open(OUT + "/decode.jsonl", "w") as f:
         f.write(json.dumps({"id": "d%02d" % i, "text": text, "chat_tokens": chat_len(text)}) + "\n")
 
 with open(OUT + "/prefill.jsonl", "w") as f:
-    for name, target in (("p256", 256), ("p2k", 2048), ("p8k", 8192)):
+    for name, target in (("p256", 256), ("p512", 512), ("p2k", 2048), ("p8k", 8192)):
         text, n = document(target, seed=target)
         f.write(json.dumps({"id": name, "text": text, "chat_tokens": n, "target": target}) + "\n")
         print(name, target, n, file=sys.stderr)

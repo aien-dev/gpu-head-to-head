@@ -1,0 +1,12 @@
+# PROTOCOL section 7 + A2/A3. 8-bit arms of every engine first, interleaved (R1 forward, R2 back).
+# The driver takes the first line without DONE/NOT_RUN before every session, so verified arms
+# (SGLang, 4-bit) are inserted here while earlier sessions run.
+OURS:R1
+VLLM:R1
+LLAMA:R1
+LLAMA:R2
+VLLM:R2
+OURS:R2
+# optional BF16 reference arm (A2)
+LLAMA16:R1
+LLAMA16:R2

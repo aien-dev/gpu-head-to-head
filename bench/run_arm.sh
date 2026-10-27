@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# One arm session of the head-to-head (PROTOCOL.md sections 6-8).
-# usage: bench/run_arm.sh OURS|VLLM|LLAMA|LLAMA16 R1|R2
+# One arm session of the head-to-head (PROTOCOL.md sections 6-8, amendments A1-A3).
+# usage: bench/run_arm.sh OURS|VLLM|SGLANG|LLAMA|LLAMA16|VLLM4|SGLANG4|LLAMA4 R1|R2
 # Holds /tmp/aien-gb10.lock for the whole session (at most 60 min), writes BOARD lines,
 # starts exactly one server, runs every cell, stops the server and checks the unload.
+# Ends with results/logs/<ARM>-<ROUND>/DONE, or NOT_RUN (with the reason) if the arm cannot start.
 set -u
 ARM=$1; ROUND=$2
-REPO=$(cd "$(dirname "$0")/.." && pwd)
+REPO=${H2H_REPO:-$(cd "$(dirname "$0")/.." && pwd)}
 H2H=${H2H:-/home/drakestapleton/h2h}
 MODEL=/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0
 VLLM_IMG=nvcr.io/nvidia/vllm@sha256:557747337846eecf34486866f3d992383c6f8af869fdb0e365b5093fcaee02c2
@@ -13,19 +14,30 @@ LLAMA_DIR=$H2H/dl/llama-bin/llama-b11913
 CUDART_DIR=$H2H/dl/llama-bin/cudart-llama-b11913-bin-ubuntu-cuda-13.4-arm64
 GGUF=$H2H/gguf/q36-35b-a3b-q8_0.gguf
 GGUF16=$H2H/gguf/q36-35b-a3b-bf16.gguf
+# A3 arms: SGLANG_IMG (image@digest), MODEL4 (vLLM/SGLang 4-bit checkpoint dir), GGUF4 (llama.cpp
+# 4-bit GGUF) are set in bench/arms.conf once verified; unset -> the arm is recorded NOT_RUN.
+SGLANG_IMG=; MODEL4=; GGUF4=
+[ -f "$REPO/bench/arms.conf" ] && . "$REPO/bench/arms.conf"
 BOARD=/home/drakestapleton/handoffs/BOARD.md
 VLLM_UTIL=${VLLM_UTIL:-0.50}
+SGLANG_MEM=${SGLANG_MEM:-0.50}
 OUT=$REPO/results/raw/$ARM-$ROUND.jsonl
 LOGD=$REPO/results/logs/$ARM-$ROUND
 mkdir -p "$LOGD" "$(dirname "$OUT")"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 board() { echo "$(ts) HeadToHead: $*" >> "$BOARD"; echo "$(ts) $*" >> "$LOGD/session.log"; }
+notrun() { board "$ARM $ROUND NOT_RUN: $*"; echo "$*" > "$LOGD/NOT_RUN"; exit 4; }
 memavail() { awk '/MemAvailable/{print $2}' /proc/meminfo; }
+CTR=
 case $ARM in
-  OURS)  PORT=18190; PAT='aien-serve-http.*--port 18190'; MID=qwen3.6-35b-a3b-fp8 ;;
-  VLLM)  PORT=18191; PAT='vllm serve|VLLM::|EngineCore'; MID=q36 ;;
-  LLAMA) PORT=18192; PAT='llama-server.*--port 18192'; MID=q36 ;;
-  LLAMA16) PORT=18193; PAT='llama-server.*--port 18193'; MID=q36 ;;
+  OURS)    PORT=18190; PAT='aien-serve-http.*--port 18190'; MID=qwen3.6-35b-a3b-fp8 ;;
+  VLLM)    PORT=18191; PAT='vllm serve|VLLM::|EngineCore'; MID=q36; CTR=h2h-vllm; MDIR=$MODEL ;;
+  VLLM4)   PORT=18191; PAT='vllm serve|VLLM::|EngineCore'; MID=q36; CTR=h2h-vllm; MDIR=$MODEL4 ;;
+  SGLANG)  PORT=18194; PAT='sglang'; MID=q36; CTR=h2h-sglang; MDIR=$MODEL ;;
+  SGLANG4) PORT=18194; PAT='sglang'; MID=q36; CTR=h2h-sglang; MDIR=$MODEL4 ;;
+  LLAMA)   PORT=18192; PAT='llama-server.*--port 18192'; MID=q36; G=$GGUF; MMAP= ;;
+  LLAMA16) PORT=18193; PAT='llama-server.*--port 18193'; MID=q36; G=$GGUF16; MMAP=--no-mmap ;;
+  LLAMA4)  PORT=18192; PAT='llama-server.*--port 18192'; MID=q36; G=$GGUF4; MMAP= ;;
   *) echo "bad arm"; exit 2 ;;
 esac
 
@@ -41,7 +53,7 @@ ktpsr() { awk '{print $39}' /proc/$KT/stat 2>/dev/null || echo NA; }
 
 mytree() {  # pids whose process trees belong to this session
   echo $$ $SPID
-  [ "$ARM" = VLLM ] && docker inspect -f '{{.State.Pid}}' h2h-vllm 2>/dev/null
+  [ -n "$CTR" ] && docker inspect -f '{{.State.Pid}}' $CTR 2>/dev/null
 }
 
 wait_quiet() {  # PROTOCOL A2: before each cell, no foreign process >20% CPU over 10 s
@@ -70,24 +82,30 @@ start_server() {
         exec taskset -c $SRV_CPUS ./aien-serve-http --engine omega --model-dir "$MODEL" --port 18190 --max-context 49152 \
              --max-tokens-cap 16384 --thinking off --batch-slots 8 ) < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
-    VLLM)
+    VLLM|VLLM4)
       docker run --rm --name h2h-vllm --runtime nvidia --gpus all --ipc host --network host \
-        --cpuset-cpus $SRV_CPUS -v "$MODEL":/model:ro "$VLLM_IMG" vllm serve /model --served-model-name q36 \
+        --cpuset-cpus $SRV_CPUS -v "$MDIR":/model:ro "$VLLM_IMG" vllm serve /model --served-model-name q36 \
         --host 127.0.0.1 --port 18191 \
-        --max-model-len 49152 --max-num-seqs 16 --gpu-memory-utilization "$VLLM_UTIL" \
+        --max-model-len 49152 --max-num-seqs 32 --gpu-memory-utilization "$VLLM_UTIL" \
         --language-model-only < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
-    LLAMA|LLAMA16)
-      if [ "$ARM" = LLAMA ]; then G=$GGUF; MMAP=; else G=$GGUF16; MMAP=--no-mmap; fi
+    SGLANG|SGLANG4)
+      docker run --rm --name h2h-sglang --runtime nvidia --gpus all --ipc host --network host \
+        --cpuset-cpus $SRV_CPUS -v "$MDIR":/model:ro "$SGLANG_IMG" python3 -m sglang.launch_server \
+        --model-path /model --served-model-name q36 --host 127.0.0.1 --port 18194 \
+        --context-length 49152 --max-running-requests 32 --mem-fraction-static "$SGLANG_MEM" \
+        < /dev/null > "$LOGD/server.log" 2>&1 &
+      SPID=$! ;;
+    LLAMA*)
       LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR taskset -c $SRV_CPUS "$LLAMA_DIR/llama-server" -m "$G" --host 127.0.0.1 \
-        --port $PORT -ngl 999 -fa on -c 196608 -np 16 --jinja $MMAP < /dev/null > "$LOGD/server.log" 2>&1 &
+        --port $PORT -ngl 999 -fa on -c 393216 -np 32 --jinja $MMAP < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
   esac
 }
 
 stop_server() {
   case $ARM in
-    VLLM) docker stop -t 60 h2h-vllm >/dev/null 2>&1 ;;
+    VLLM*|SGLANG*) docker stop -t 60 $CTR >/dev/null 2>&1 ;;
     *) kill -TERM $SPID 2>/dev/null ;;
   esac
   for i in $(seq 1 120); do kill -0 $SPID 2>/dev/null || break; sleep 1; done
@@ -127,12 +145,19 @@ cell() {  # metric concurrency max_tokens promptfile [extra]
 # PROTOCOL A2 (Main's gate): start only when no foreign process used >20% CPU for 60 s and load1 < 6,
 # before taking the lock, so the 60-min hold is not spent waiting
 SPID=
+case $ARM in
+  SGLANG*) [ -n "$SGLANG_IMG" ] || notrun "no SGLang image verified for aarch64/sm_121 (bench/arms.conf)" ;;
+esac
+case $ARM in
+  VLLM4|SGLANG4) [ -n "$MODEL4" ] && [ -f "$MODEL4/config.json" ] || notrun "no 4-bit checkpoint (bench/arms.conf MODEL4)" ;;
+  LLAMA4) [ -n "$GGUF4" ] && [ -f "$GGUF4" ] || notrun "no 4-bit GGUF (bench/arms.conf GGUF4)" ;;
+esac
 until python3 "$REPO/bench/quiet.py" --window 60 --max-load 6 --exclude-tree $$ >> "$LOGD/quiet.jsonl"; do :; done
 for pair in LLAMA:convert.log LLAMA16:convert-bf16.log; do  # the GGUF must be fully written
   [ "$ARM" = "${pair%%:*}" ] || continue
   CL=$H2H/gguf/${pair#*:}
   until grep -q '^EXIT 0$' "$CL" 2>/dev/null; do
-    grep -q '^EXIT [1-9]' "$CL" 2>/dev/null && { board "$ARM $ROUND NOT_RUN: GGUF conversion failed ($CL)"; exit 4; }
+    grep -q '^EXIT [1-9]' "$CL" 2>/dev/null && notrun "GGUF conversion failed ($CL)"
     sleep 30
   done
 done
@@ -153,7 +178,7 @@ start_server
 if ready; then
   echo "load_seconds $(echo "$(date +%s.%N) - $T0" | bc)" >> "$LOGD/session.log"
   case $ARM in LLAMA*) LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR "$LLAMA_DIR/llama-server" --version > "$LOGD/version.txt" 2>&1 ;; esac
-  [ "$ARM" = VLLM ] && docker exec h2h-vllm python3 -c "import vllm;print(vllm.__version__)" > "$LOGD/version.txt" 2>&1
+  [ -n "$CTR" ] && docker exec $CTR pip list 2>/dev/null | grep -i -E '^(vllm|sglang|torch|transformers|flashinfer)' > "$LOGD/version.txt"
   for c in 1 4 8 16; do
     [ -e "$LOGD/TIMEOUT" ] && break
     cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3
@@ -163,8 +188,17 @@ if ready; then
     cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce
   done
   [ -e "$LOGD/TIMEOUT" ] || cell agree 1 128 decode.jsonl --warmup 0 --reps 16
+  # A3 grid: N = 1, 8, 32 streams x prompt 512 / 8k tokens, 256 new tokens, 1 warmup + 3 runs
+  for p in p512 p8k; do
+    for n in 1 8 32; do
+      [ -e "$LOGD/TIMEOUT" ] && break
+      cell grid-$p-n$n $n 256 prefill.jsonl --select $p --warmup 1 --reps 3 --nonce
+    done
+  done
   board "$ARM $ROUND cells done at $SECONDS s"
+  touch "$LOGD/DONE"
 else
+  echo "server did not become ready (see results/logs/$ARM-$ROUND/server.log)" > "$LOGD/NOT_RUN"
   board "$ARM $ROUND NOT_RUN: server did not become ready (see results/logs/$ARM-$ROUND/server.log)"
 fi
 stop_server

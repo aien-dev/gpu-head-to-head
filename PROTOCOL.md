@@ -89,12 +89,12 @@ count is stored per row. That is part of the end-to-end result and is stated bes
   Identical to the 2026-10-27T01:11:57Z live snapshot except port and lock path.
 - VLLM: `docker run --rm --runtime nvidia --gpus all --ipc host --network host --cpuset-cpus <SRV>
   -v <model>:/model:ro <image@digest> vllm serve /model --served-model-name q36 --host 127.0.0.1 --port 18191
-  --max-model-len 49152 --max-num-seqs 16 --gpu-memory-utilization <U>
+  --max-model-len 49152 --max-num-seqs 32 (A3; was 16) --gpu-memory-utilization <U>
   --language-model-only`. Everything else default (CUDA graphs, prefix
   cache, chunked prefill as the image ships them). `<U>` is the smallest of 0.50/0.60/0.70 that starts;
   the value used is recorded.
 - LLAMA: `llama-server -m q36-q8_0.gguf --host 127.0.0.1 --port 18192 -ngl 999 -fa on
-  -c 196608 -np 16 --jinja` (12288 tokens per slot, 16 slots). Everything else default.
+  -c 393216 -np 32 --jinja` (A3; was `-c 196608 -np 16`: 12288 tokens per slot either way). Everything else default.
 - Ports 18190-18193 only. Port 18091 is never touched.
 - CPU pinning (A2): cpus 5-9 and 15-19 are Cortex-X925 (`/proc/cpuinfo` CPU part 0xd85), cpus 0-4
   and 10-14 are Cortex-A725 (0xd87). Every server arm gets the identical X925 set `5-9,15-17,19`
@@ -179,3 +179,33 @@ on this one Spark, on the stated date and load.
   checkpoint**. It is a reference engine, not ground truth: no arm runs the model unquantized, and
   the checkpoint itself is FP8. Pairwise agreement between OURS, VLLM and LLAMA is labeled as mixing
   engine and quantization effects.
+- **A3 (2026-10-27, before any timed run; Main, after a second outside audit Drake adopted):**
+  (a) **More arms.** SGLANG: the official SGLang server, run like VLLM (container, host network,
+  same X925 core set, port 18194, `--context-length 49152 --max-running-requests 32
+  --mem-fraction-static 0.50`, raised 0.60/0.70 like VLLM if it does not start), only if an image
+  with an arm64 manifest that runs on sm_121 exists; the exact image digest is recorded in
+  `bench/arms.conf`. 4-bit arms, one per engine, each labeled **different numeric format from the
+  FP8 checkpoint OURS runs**: VLLM4 / SGLANG4 on a published NVFP4 checkpoint of the same model
+  (repo id and revision recorded), LLAMA4 on an MXFP4 (else Q4_K_M) GGUF produced with
+  `llama-quantize` b11913 from the BF16 GGUF of A2. An arm whose image or weights are not available
+  is NOT_RUN with the reason; nothing third-party is substituted silently.
+  (b) **Grid**, added to every session after the existing cells: N = 1, 8, 32 concurrent streams ×
+  prompts `p512` (502 chat tokens, added to `prefill.jsonl`; the other prompts are byte-identical)
+  and `p8k` (8184), 256 new tokens, nonce prefix per stream, 1 warmup + 3 measured runs. Reported:
+  TTFT; TPOT = `(t_last - t_first) / (completion_tokens - 1)` per stream, p50 and p99 over all
+  measured streams of a cell (Wolfram `Quantile`, count stated; the client records first/last token
+  times, not every token, so p99 is over streams, not tokens); aggregate tok/s as M3; peak memory as
+  M5. To serve N = 32, VLLM runs `--max-num-seqs 32` and llama-server `-np 32 -c 393216` (still
+  12288 tokens per slot); OURS stays at its deployed `--batch-slots 8` with the A1 retry.
+  (c) **Order and cost.** The 8-bit arm of every engine runs first, interleaved (R1 forward, R2
+  reversed); then LLAMA16 (A2), then the 4-bit arms, queued in `bench/schedule.txt`. Each session
+  is at most 60 min of GPU lock with the quiet window blocking other lanes: SGLANG +2 sessions;
+  VLLM4 +2; SGLANG4 +2; LLAMA4 +2, plus about 15 min of CPU quantization before them (no GPU).
+  The grid cells are last in each session, so a session that reaches 60 min loses grid cells first;
+  missing cells are listed as NOT_RUN (timeout). Arms that do not fit tonight's window stay queued
+  and are reported as follow-up, NOT_RUN.
+  (d) Published Spark figures for this model from other parties are quoted in the README as context
+  only, with their source and numeric format. The only claims are same-box results from this
+  protocol.
+  (e) GPU-lock priority (Main, 2026-10-27): after HeadToHead's FP8 sessions, OmegaVfio and the C1
+  lanes take the lock before any queued A2/A3 arm.
