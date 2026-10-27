@@ -276,3 +276,8 @@ on this one Spark, on the stated date and load.
   hand and the lock released; logs are in `results/logs/attempts/OURS-R1-prelock-restart-*/`.
   OURS R1 then runs from the start with (f): driver relaunched 02:57:09Z, quiet gate and lock
   taken 03:02:09Z (`results/logs/OURS-R1/session.log`), server cores 5-9,15-18 (kthread on 19).
+  (h) **Campaign-end contract (Main).** From Main's GPU-freeze order until the campaign ends, no other lane takes
+  `/tmp/aien-gb10.lock`, gaps between sessions included. The campaign ends with exactly one BOARD
+  line `<UTC ts> HeadToHead: ... FINAL IDLE`, posted even if the campaign ends early or aborts;
+  queued chip jobs wait on that anchored line. If HeadToHead is about to stop mid-run it posts
+  `HeadToHead: ABORTED, not FINAL IDLE` instead.
