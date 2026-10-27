@@ -1,0 +1,7 @@
+# loopback_only() self-test, 2026-10-27T02:58:30Z, run_arm.sh 006ef8c207987ab8, port 18199, pinned to cpu 3
+## positive: aien-serve-http bin-19173f9e --engine stub --bind 127.0.0.1
+verdict: PASS (expected PASS)
+LISTEN 0      128    127.0.0.1:18199 0.0.0.0:*
+## negative control: python3 -m http.server --bind 0.0.0.0
+verdict: FAIL (expected FAIL)
+LISTEN 0      5      0.0.0.0:18199 0.0.0.0:*
