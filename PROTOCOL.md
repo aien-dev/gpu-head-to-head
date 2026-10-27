@@ -268,3 +268,8 @@ on this one Spark, on the stated date and load.
   llama-server already had `--host 127.0.0.1`). After the server answers and before the first
   cell, `run_arm.sh` writes `ss -ltnH 'sport = :<port>'` to `results/logs/<ARM>-<R>/listen.txt`;
   any listener that is not 127.0.0.1 makes the session a FAIL: server stopped, no cell run.
+  (g) **OURS R1 attempt aborted by the harness operator.** To add (f), HeadToHead stopped the
+  driver at 02:57Z believing the session was still in its quiet gate; it had taken the lock at
+  02:56:04Z and was uploading weights (no request served, no cell run). The server was stopped by
+  hand and the lock released; logs are in `results/logs/attempts/OURS-R1-prelock-restart-*/`.
+  OURS R1 then runs from the start with (f).
