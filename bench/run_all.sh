@@ -23,6 +23,12 @@ while :; do
   H2H_REPO=$REPO bash "$snap" "${next%:*}" "${next#*:}"
   rc=$?
   rm -f "$snap"
+  # exit 3 = /tmp/aien-gb10.lock busy for 900 s (another lane's GPU job): the session never took
+  # the GPU and ran no cell, so its pre-lock logs go to attempts/ and the same session is retried
+  if [ $rc -eq 3 ]; then
+    mv "results/logs/${next%:*}-${next#*:}" "results/logs/attempts/${next%:*}-${next#*:}-lockwait-$(date -u +%H%M%S)"
+    sleep 30; continue
+  fi
   # a session that neither finished nor recorded NOT_RUN would loop forever: record it and move on
   if [ ! -e "results/logs/${next%:*}-${next#*:}/DONE" ] && [ ! -e "results/logs/${next%:*}-${next#*:}/NOT_RUN" ]; then
     echo "exit $rc without DONE" > "results/logs/${next%:*}-${next#*:}/NOT_RUN"

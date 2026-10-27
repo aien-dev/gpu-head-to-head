@@ -259,3 +259,8 @@ on this one Spark, on the stated date and load.
   R1 on, the client runs on A725 cores 0-1 and coremon on A725 core 2 (`run_arm.sh`), so builds
   never share a core with the measurement side; every row still records its core lists. The A2
   gate and the A4(a) in-cell foreign-process check on the server cores are unchanged.
+  (e) **GPU-lock wait.** Other lanes take `/tmp/aien-gb10.lock` between sessions. A session whose
+  `flock -w 900` times out never took the GPU and ran no cell; `run_all.sh` now moves its pre-lock
+  logs to `results/logs/attempts/<ARM>-<R>-lockwait-<time>/` and retries the same session, instead
+  of recording it NOT_RUN and skipping it. The first OURS R1 lock wait (02:51Z, Provenance holding
+  the lock) was stopped by hand before that change and is kept the same way.
