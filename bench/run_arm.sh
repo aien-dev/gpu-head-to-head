@@ -53,17 +53,17 @@ start_server() {
         env AIEN_Q36_STROKE=1 Q36_BATCH_BIN=bin-19173f9e AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock \
             AIEN_GB10_LOCK_HELD=1 \
         exec ./aien-serve-http --engine omega --model-dir "$MODEL" --port 18190 --max-context 49152 \
-             --max-tokens-cap 16384 --thinking off --batch-slots 8 ) > "$LOGD/server.log" 2>&1 &
+             --max-tokens-cap 16384 --thinking off --batch-slots 8 ) < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
     VLLM)
       docker run --rm --name h2h-vllm --runtime nvidia --gpus all --ipc host -p 127.0.0.1:18191:8000 \
         -v "$MODEL":/model:ro "$VLLM_IMG" vllm serve /model --served-model-name q36 --port 8000 \
         --max-model-len 49152 --max-num-seqs 16 --gpu-memory-utilization "$VLLM_UTIL" \
-        --language-model-only > "$LOGD/server.log" 2>&1 &
+        --language-model-only < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
     LLAMA)
       LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR "$LLAMA_DIR/llama-server" -m "$GGUF" --host 127.0.0.1 \
-        --port 18192 -ngl 999 -fa on -c 196608 -np 16 --jinja > "$LOGD/server.log" 2>&1 &
+        --port 18192 -ngl 999 -fa on -c 196608 -np 16 --jinja < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
   esac
 }

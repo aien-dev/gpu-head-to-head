@@ -35,14 +35,26 @@ def one_request(host, port, model, prompt, max_tokens, timeout=1800):
     }
     data = json.dumps(body).encode()
     row = {"t_send": None, "t_first": None, "t_last": None, "chunks": 0, "text": "",
-           "usage": None, "finish_reason": None, "error": None, "http_status": None}
-    conn = http.client.HTTPConnection(host, port, timeout=timeout)
+           "usage": None, "finish_reason": None, "error": None, "http_status": None,
+           "busy_retries": 0}
+    conn = None
     try:
         row["t_send"] = time.monotonic()
-        conn.request("POST", "/v1/chat/completions", body=data,
-                     headers={"Content-Type": "application/json", "Accept": "text/event-stream"})
-        resp = conn.getresponse()
-        row["http_status"] = resp.status
+        while True:
+            # PROTOCOL amendment A1: a server that refuses with "busy" (HTTP 429/503) is retried
+            # every 50 ms; the clock keeps running from the first send.
+            conn = http.client.HTTPConnection(host, port, timeout=timeout)
+            conn.request("POST", "/v1/chat/completions", body=data,
+                         headers={"Content-Type": "application/json", "Accept": "text/event-stream"})
+            resp = conn.getresponse()
+            row["http_status"] = resp.status
+            if resp.status in (429, 503) and time.monotonic() - row["t_send"] < timeout:
+                resp.read()
+                conn.close()
+                row["busy_retries"] += 1
+                time.sleep(0.05)
+                continue
+            break
         if resp.status != 200:
             row["error"] = resp.read().decode(errors="replace")[:2000]
             return row
@@ -78,7 +90,8 @@ def one_request(host, port, model, prompt, max_tokens, timeout=1800):
     except Exception as e:  # recorded, never hidden
         row["error"] = repr(e)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
     return row
 
 

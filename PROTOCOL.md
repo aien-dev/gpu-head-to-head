@@ -74,8 +74,10 @@ A nonce line (`Request id <uuid>. Ignore this line.`) is prepended to every pref
 arm's prefix cache can hit. Decode prompts carry no nonce (they are short; prefix caching of 40 tokens
 does not change decode rate; TTFT on a repeated short prompt is labeled as such in M1).
 
-Concurrency is what the arm is configured for as deployed: OURS runs the live `--batch-slots 8`, so at
-c=16 eight requests queue inside OURS. That is part of the end-to-end result and is stated beside it.
+Concurrency is what the arm is configured for as deployed: OURS runs the live `--batch-slots 8`. At
+c=16, OURS refuses requests beyond 8 with HTTP 503 `server_busy` ("retry shortly"); the client
+retries those every 50 ms with the clock running from the first send (amendment A1), and the retry
+count is stored per row. That is part of the end-to-end result and is stated beside it.
 
 ## 6. Arm configuration
 
@@ -132,4 +134,8 @@ on this one Spark, on the stated date and load.
 
 ## 10. Amendments
 
-None yet.
+- **A1 (2026-10-27, before any timed run, found with OURS `--engine stub` on port 18199, no GPU):**
+  OURS answers HTTP 503 `server_busy` when every generation slot is taken instead of queueing.
+  `bench.py` now retries 429/503 every 50 ms (bounded by the 1800 s request timeout), keeps `t_send`
+  at the first attempt, and records `busy_retries`. Section 5 updated. Server launches read
+  `/dev/null` as stdin (OURS exits silently when started in the background without it).
