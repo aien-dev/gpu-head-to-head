@@ -19,7 +19,7 @@ REPO = sys.argv[1]
 
 def honoured(v):
     why = v.get("reason") or "kthread"  # A2-era records without a reason were kthread voids
-    return "kthread" in why or ": [" in why
+    return "kthread" in why or ": [" in why or "18091 not idle" in why  # A6(b)
 
 
 void = set()

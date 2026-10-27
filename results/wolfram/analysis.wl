@@ -1,9 +1,11 @@
 (* PROTOCOL.md sections 5 and 7, A3(b). Evaluated in the Wolfram MCP kernel, one call per arm, with
    that arm's h2hRows (bench/extract.py) prepended. Row: {arm, round, metric, rep, batch, stream,
    load1, tSend, tFirst, tLast, promptTokens, completionTokens, busyRetries, ok}. Output: RawJSON. *)
+(* A6(d)4: mean and standard deviation of the same values are added beside median/IQR. *)
 h2hStats[v_List] := If[Length[v] == 0, <|"n" -> 0|>,
   <|"n" -> Length[v], "median" -> N[Median[v]], "q1" -> N[Quantile[v, 1/4]], "q3" -> N[Quantile[v, 3/4]],
-    "iqr" -> N[InterquartileRange[v]], "p50" -> N[Quantile[v, 1/2]], "p99" -> N[Quantile[v, 99/100]]|>];
+    "iqr" -> N[InterquartileRange[v]], "p50" -> N[Quantile[v, 1/2]], "p99" -> N[Quantile[v, 99/100]],
+    "mean" -> N[Mean[v]], "sd" -> If[Length[v] > 1, N[StandardDeviation[v]], Null]|>];
 h2hAnalyse[rows_] := Module[{ok, bad, byMetric, perStream, perBatch, out = <||>},
   ok = Select[rows, #[[14]] === True &];
   bad = Counts[Select[rows, #[[14]] =!= True &][[All, 3]]];

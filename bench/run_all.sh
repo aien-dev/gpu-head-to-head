@@ -8,6 +8,7 @@
 set -u
 cd "$(dirname "$0")/.."
 REPO=$PWD
+SCHED=${H2H_SCHEDULE:-bench/schedule.txt}  # A6: bench/schedule-a6.txt (window only)
 while :; do
   next=
   while read -r s; do
@@ -15,10 +16,11 @@ while :; do
     [ -e "results/logs/${s%:*}-${s#*:}/DONE" ] && continue
     [ -e "results/logs/${s%:*}-${s#*:}/NOT_RUN" ] && continue
     next=$s; break
-  done < bench/schedule.txt
+  done < "$SCHED"
   [ -n "$next" ] || { echo "$(date -u +%FT%TZ) schedule complete"; break; }
   snap=$(mktemp /tmp/h2h-run_arm.XXXXXX.sh)
   cp bench/run_arm.sh "$snap"
+  bash -n "$snap" || { echo "$(date -u +%FT%TZ) run_arm.sh fails bash -n; stopping"; rm -f "$snap"; exit 2; }
   echo "$(date -u +%FT%TZ) session $next (run_arm.sh sha256 $(sha256sum < "$snap" | cut -c1-16))"
   H2H_REPO=$REPO bash "$snap" "${next%:*}" "${next#*:}"
   rc=$?

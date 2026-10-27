@@ -1,0 +1,101 @@
+run_arm.sh sha256 bb433641c77fe66f41ec47fee0d59d9d6d555d1f365295b77884b04b20312613 (snapshot /tmp/h2h-a6dry.OCijyM.sh)
+command: H2H_REPO=/home/drakestapleton/handoffs/HeadToHead/repo H2H_DRY=1 timeout 1800 bash <snapshot> OURS A6DRY
+rc=0
+## session.log
+2026-10-27T12:57:27Z DRY RUN: stub engine on 18199, no GPU lock, no q36-extra
+2026-10-27T12:57:27Z START OURS A6DRY gpu lock held (<=60 min; test port 18199; live 18091 untouched)
+kthread_psr_start 7
+server_cpus 5,6,8,9,15,16,17,18,19 client_cpus 0-1 monitor_cpu 2
+load_seconds 1.023719675
+2026-10-27T12:58:10Z VOID OURS-A6DRY-prefill-p2k-t1: 18091 not idle: in_flight start=0 end=1 sampled=1
+2026-10-27T12:58:16Z VOID OURS-A6DRY-prefill-p2k-t2: 18091 not idle: in_flight start=0 end=0 sampled=1
+2026-10-27T12:58:51Z VOID OURS-A6DRY-prefill-p2k-t3: 18091 not idle: in_flight start=0 end=0 sampled=1
+2026-10-27T12:59:36Z OURS A6DRY cells done at 129 s
+kthread_psr_end 7
+2026-10-27T12:59:42Z END OURS A6DRY gpu lock released after 135 s; memavail base=68086796kB after=67726588kB
+## live18091.tsv (cell, in_flight start, end, nonzero mid-cell samples, epoch span)
+OURS-A6DRY-agree-t1	0	0	none	1793105851-1793105854
+OURS-A6DRY-decode-c1-t1	0	0	none	1793105856-1793105859
+OURS-A6DRY-decode-c4-t1	0	0	none	1793105861-1793105864
+OURS-A6DRY-decode-c8-t1	0	0	none	1793105866-1793105869
+OURS-A6DRY-decode-c16-t1	0	0	none	1793105871-1793105875
+OURS-A6DRY-prefill-p256-t1	0	0	none	1793105877-1793105880
+OURS-A6DRY-prefill-p512-t1	0	0	none	1793105882-1793105885
+OURS-A6DRY-prefill-p2k-t1	0	1	1	1793105887-1793105890
+OURS-A6DRY-prefill-p2k-t2	0	0	1	1793105892-1793105895
+OURS-A6DRY-prefill-p2k-t3	0	0	1	1793105928-1793105931
+OURS-A6DRY-prefill-p8k-t1	0	0	none	1793105933-1793105937
+OURS-A6DRY-grid-p512-n1-t1	0	0	none	1793105943-1793105946
+OURS-A6DRY-grid-p512-n8-t1	0	0	none	1793105952-1793105955
+OURS-A6DRY-grid-p512-n32-t1	0	0	none	1793105957-1793105960
+OURS-A6DRY-grid-p8k-n1-t1	0	0	none	1793105963-1793105966
+OURS-A6DRY-grid-p8k-n8-t1	0	0	none	1793105968-1793105971
+OURS-A6DRY-grid-p8k-n32-t1	0	0	none	1793105973-1793105976
+## mem.tsv column counts
+    128 6
+## mem.tsv rows with 18091 in_flight != 0
+1793105890 67961488 112272 4.70 7 1
+1793105891 67935616 112272 4.70 7 1
+1793105892 67917588 112272 4.64 7 1
+1793105896 67962508 112272 4.64 7 1
+1793105897 67948092 112272 4.67 7 1
+1793105898 67939784 112272 4.67 7 1
+1793105899 67897056 112272 4.67 7 1
+1793105900 67891448 112272 4.67 7 1
+1793105901 67872732 112272 4.67 7 1
+1793105902 68016732 112272 4.70 7 1
+1793105903 67973052 112272 4.70 7 1
+1793105904 67907628 112272 4.70 7 1
+1793105905 67870516 112272 4.70 7 1
+1793105906 67853540 112272 4.70 7 1
+1793105907 67847384 112272 4.64 7 1
+1793105909 67840900 112272 4.64 7 1
+1793105910 67965736 112272 4.64 7 1
+1793105911 67943984 112272 4.64 7 1
+1793105912 67914712 112272 4.35 7 1
+1793105913 67910984 112272 4.35 7 1
+1793105914 67893868 112272 4.35 7 1
+1793105915 67840096 112272 4.35 7 1
+1793105916 67818248 112272 4.35 7 1
+1793105917 67804628 112272 4.24 7 1
+1793105918 67977088 112272 4.24 7 1
+1793105919 67928204 112272 4.24 7 1
+1793105920 67875908 112272 4.24 7 1
+1793105921 67853956 112272 4.24 7 1
+1793105922 67821744 112272 4.22 7 1
+1793105923 67974500 112272 4.22 7 1
+1793105924 67948544 112272 4.22 7 1
+1793105926 67903120 112272 4.22 7 1
+1793105927 67858432 112272 4.22 7 1
+1793105928 67872356 112272 4.12 7 1
+## coremon files
+OURS-A6DRY-agree-t1.jsonl
+OURS-A6DRY-decode-c1-t1.jsonl
+OURS-A6DRY-decode-c16-t1.jsonl
+OURS-A6DRY-decode-c4-t1.jsonl
+OURS-A6DRY-decode-c8-t1.jsonl
+OURS-A6DRY-grid-p512-n1-t1.jsonl
+OURS-A6DRY-grid-p512-n32-t1.jsonl
+OURS-A6DRY-grid-p512-n8-t1.jsonl
+OURS-A6DRY-grid-p8k-n1-t1.jsonl
+OURS-A6DRY-grid-p8k-n32-t1.jsonl
+OURS-A6DRY-grid-p8k-n8-t1.jsonl
+OURS-A6DRY-prefill-p256-t1.jsonl
+OURS-A6DRY-prefill-p2k-t1.jsonl
+OURS-A6DRY-prefill-p2k-t2.jsonl
+OURS-A6DRY-prefill-p2k-t3.jsonl
+OURS-A6DRY-prefill-p512-t1.jsonl
+OURS-A6DRY-prefill-p8k-t1.jsonl
+## cell order in raw
+agree decode-c1 decode-c4 decode-c8 decode-c16 prefill-p256 prefill-p512 prefill-p2k prefill-p8k grid-p512-n1 grid-p512-n8 grid-p512-n32 grid-p8k-n1 grid-p8k-n8 grid-p8k-n32
+## voids
+{"cell_run": "OURS-A6DRY-prefill-p2k-t1", "reason": "18091 not idle: in_flight start=0 end=1 sampled=1", "t0": 1793105887, "t1": 1793105890}
+{"cell_run": "OURS-A6DRY-prefill-p2k-t2", "reason": "18091 not idle: in_flight start=0 end=0 sampled=1", "t0": 1793105892, "t1": 1793105895}
+{"cell_run": "OURS-A6DRY-prefill-p2k-t3", "reason": "18091 not idle: in_flight start=0 end=0 sampled=1", "t0": 1793105928, "t1": 1793105931}
+## maps-so.txt (stub)
+/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+/usr/lib/aarch64-linux-gnu/libc.so.6
+/usr/lib/aarch64-linux-gnu/libgcc_s.so.1
+/usr/lib/aarch64-linux-gnu/libm.so.6
+## DONE
+-rw-rw-r-- 1 drakestapleton drakestapleton 0 Oct 27 07:59 results/dry/logs/OURS-A6DRY/DONE

@@ -1,0 +1,9 @@
+# PROTOCOL.md A6: window only. Run with H2H_SCHEDULE=bench/schedule-a6.txt bench/run_all.sh
+# inside a window Drake opens himself (18091 stopped, owner-only q36-live-down-for-tests marker).
+# R1 forward, R2 reversed (interleaved). R2 runs only if the window Drake grants covers it.
+OURS:A6R1
+LLAMA16:A6R1
+LLAMA:A6R1
+LLAMA:A6R2
+LLAMA16:A6R2
+OURS:A6R2

@@ -281,3 +281,117 @@ on this one Spark, on the stated date and load.
   line `<UTC ts> HeadToHead: ... FINAL IDLE`, posted even if the campaign ends early or aborts;
   queued chip jobs wait on that anchored line. If HeadToHead is about to stop mid-run it posts
   `HeadToHead: ABORTED, not FINAL IDLE` instead.
+- **A6 (2026-10-27 ~13:00Z, HeadToHead/LlamaH2H; written and committed before any A6 timed cell):**
+  Requested methodology for a llama.cpp comparison (ggml-org/llama.cpp Discussion #31092,
+  comment 19167521). The model is **Qwen3.6-35B-A3B** (section 2), not the 27B named in that
+  discussion's title; every A6 report says so first.
+  (a) **Why the earlier sessions stopped.** The `MON_CPU: unbound variable` lines in
+  `~/h2h/run_all.log` come from the VLLM R1 snapshot that predates A4; `run_arm.sh` has set
+  `MON_CPU=2` since A4(b)/A5(d), and OURS R1 ran with `monitor_cpu 2` and 13 coremon files. OURS
+  R1 ended without DONE because its server was stopped from outside at about 03:44Z
+  (`server.log`: "shutdown complete in 70713 ms"; last `mem.tsv` sample 03:45:17Z), before the
+  ~03:52Z reboot. Its 360 rows (13 cell runs, all t1) stay as recorded; `grid-p8k-n8` is partial
+  (16 rows) and `grid-p8k-n32` never ran. Those rows are reported under the section 7 rule as
+  OURS only, with 18091 down at the time and no llama.cpp counterpart; they are not A6 cells.
+  (b) **Resident desk server, idle gate.** The desk server on 127.0.0.1:18091 (a second
+  Qwen3.6-35B-A3B process) is never touched. A6 sessions read its `/health` before and after
+  every cell and once per second during it (`mem.tsv` column 6). A cell is VOID and re-run
+  (A2 rule, at most 3 tries) unless every reading is `in_flight: 0` or connection refused (server
+  down). Any other failure to read health voids the cell (fail closed). Readings go to
+  `results/logs/<ARM>-<R>/live18091.tsv`; `extract.py` drops cells voided this way. A6 reports
+  never say "no other load": they state that a second 35B process was resident and idle-gated, or
+  that it was down, per cell.
+  (c) **Loads only through `~/.local/bin/q36-extra`, so every A6 arm needs a window.** Every A6
+  server and llama-bench start goes through q36-extra (`Q36_EXTRA_LEDGER=HeadToHead-A6`,
+  `Q36_EXTRA_WAIT=600`, need 42 GiB for OURS and LLAMA, 75 GiB for LLAMA16). q36-extra v4 refuses
+  any load while 18091 answers unless the owner-only marker
+  `~/.local/state/aien-coordinator/q36-live-down-for-tests` exists, so **OURS, LLAMA and LLAMA16
+  A6 sessions run only in a window Drake opens himself** with 18091 stopped. Outside a window the
+  session records NOT_RUN with q36-extra's message verbatim (`run_arm.sh`), never a forced load.
+  LLAMA16 memory fit (Wolfram Language, GiB = 2^30 B): BF16 GGUF 71066994752 B, 18091 resident
+  41305 MiB, 8 GiB kept free: `N[(71066994752 + 41305*2^20 + 8192*2^20)/2^30]` = 114.523 GiB
+  against 121 GiB total, margin -6.477 GiB beside the desk server; Q8_0 GGUF 37802149952 B gives
+  83.543 GiB. With the desk server down: BF16 + 8 GiB = 74.186 GiB, Q8_0 + 8 GiB = 43.206 GiB.
+  At 12:43Z, MemAvailable - Mapped (q36-extra's measure) was 21.105 GiB.
+  (d) **The seven requested conditions, mapped to mechanisms.**
+  1. *Same work.* Same prompt files (`prompts/decode.jsonl` sha256 d36beade…, `prompts/prefill.jsonl`
+     sha256 24d8b50a…), same request body (section 3: temperature 0, top_p 1, seed 0, thinking off),
+     same max_tokens per cell. Per-request context: no request exceeds 8k prompt + 256 new
+     tokens, below both OURS `--max-context 49152` and llama-server's 12288 tokens per slot
+     (`-c 393216 -np 32`). **Not the same model file and no arm is "same quantization":** OURS
+     reads the FP8 safetensors checkpoint (rev 95a723d0). **LLAMA16 (primary llama.cpp arm)** reads
+     the same weight values dequantized to BF16 (`--outtype bf16`), which is about 2x the weight
+     bytes read per token, a handicap on llama.cpp decode. **LLAMA (Q8_0, secondary)** reads a
+     similar number of weight bytes per token but different weight values. Both are reported, each
+     labeled this way.
+  2. *pp and tg separately.* Prefill (M4, cells p256, p512 (new in A6, already in
+     `prompts/prefill.jsonl`), p2k, p8k) and decode (M2/M3) are separate tables; no blended tok/s.
+     Cross-check column for llama.cpp arms: `llama-bench -m <gguf> -ngl 99 -fa on
+     -p 256,512,2048,8192 -n 128 -r 5 -t <9> -lm mmap|none -o jsonl` (pp and tg rows as llama-bench
+     prints them, in `results/llama-bench/<ARM>-<R>.jsonl`), run after llama-server stops, same
+     lock, through q36-extra, bounded by the 60-min hold. The OURS counterpart
+     column is its server log (`leave: row N, prompt P tok ..., prefill X ms, decode D tok in Y ms`).
+     The HTTP cells through `bench.py` stay the primary measurement for every arm.
+  3. *Offload stated.* llama-server `-ngl 999`, llama-bench `-ngl 99` (the model has 40 layers);
+     the report quotes llama.cpp's own "offloaded N/N layers to GPU" log line. OURS: the report
+     states, per stage (embedding, 40 layers, LM head, sampling, tokenizer/template/HTTP), the
+     device that runs it, from the source at the `BUILD.txt` commits of bin-19173f9e; a stage not
+     confirmed from source is labeled unverified. Host CPU sets are in every row.
+  4. *Repetitions with spread.* Unchanged section 7 rule: 2 warmup + 3 measured batches per cell
+     per round, median and IQR (Wolfram). **Added:** mean and standard deviation (Wolfram `Mean`,
+     `StandardDeviation`) of the same measured values with n, and llama-bench's 5 repetitions as
+     mean ± SD (recomputed in Wolfram from `samples_ts`). Both statistics are reported; neither
+     replaces the other; never best run only.
+  5. *Correctness before speed.* In A6 sessions the agreement cell (M6) runs first, before any timed
+     cell. The report gives M6 (OURS–LLAMA16, OURS–LLAMA, within-arm R1–R2) before any speed
+     number; if outputs diverge, that is stated first, with the count and the first divergence.
+  6. *Frozen recipe.* Per session `results/logs/<ARM>-<R>/machine.txt`: kernel, `nvidia-smi`
+     driver (580.173.02 expected), pstate, SM/memory clocks, power, temperature, clock event
+     reasons (`nvidia-smi -q -d CLOCK,POWER,PERFORMANCE`) at lock time and at session end;
+     loadavg, MemTotal/MemAvailable/Mapped, 18091 health. Clocks are not locked (default GB10
+     clock policy; the harness changes no device setting). Before the quiet gate: sha256 of
+     `aien-serve-http` and `libomega_gpu.a`, its `readelf -d` NEEDED list, the checkpoint sha256
+     list and `sha256sum -c` of it (OURS), the GGUF sha256 (Q8_0 expected cd5ff55b…, BF16
+     expected 04a14d31…) and llama binaries' sha256 (LLAMA arms). The weight-file hashes run only
+     while 18091 is down, because reading 35-71 GB through the page cache could evict the resident
+     server's mapped weights; with 18091 up, `machine.txt` says they were deferred. `llama-server
+     --version` runs under the lock (`version.txt`), since it initialises CUDA. llama.cpp is the published
+     release b11913 (commit 7aca0d2ea8d92b56911233b822db01f9fbb1ae50,
+     `llama-b11913-bin-ubuntu-cuda-13.4-arm64` + its cudart bundle), not a local build. Its CMake
+     flags, recovered from `.github/workflows/release.yml` at that commit (lines 38, 349-353,
+     411-420; container `nvidia/cuda:13.4.1-devel-ubuntu24.04`, no `CMAKE_CUDA_ARCHITECTURES`):
+     `-DCMAKE_INSTALL_RPATH='$ORIGIN' -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DGGML_BACKEND_DL=ON
+     -DGGML_NATIVE=OFF -DGGML_CPU_ALL_VARIANTS=ON -DGGML_CUDA=ON -DGGML_CUDA_NCCL=OFF
+     -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON
+     -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=ON -DLLAMA_CONNECT=ON -DGGML_CUDA_CCCL_VERSION=v3.4.3`.
+     Exact commands: `bench/run_arm.sh` (snapshot sha256 printed by `run_all.sh`).
+  7. *Disclosure.* llama.cpp's CUDA backend uses NVIDIA's CUDA libraries (cudart, cuBLAS). OURS
+     links no CUDA user-space library (bin-19173f9e NEEDED: libm, libgcc_s, libc, the loader;
+     each A6 session writes the server's mapped shared objects to `maps-so.txt`), but still
+     relies on NVIDIA's open kernel module 580.173.02 and NVIDIA's signed GPU firmware, and its GPU
+     kernels come from first-party C code generation (not Omega `.om`).
+  (e) **Order (window only).** `bench/schedule-a6.txt`, run with
+  `H2H_SCHEDULE=bench/schedule-a6.txt bench/run_all.sh`: R1 = OURS, LLAMA16, LLAMA; R2 reversed.
+  R2 runs only if the window Drake grants covers it; otherwise R2 is NOT_RUN and the report gives
+  R1 only, with n stated. Every session keeps the A2/A4 gates, the 60-min hold and BOARD lines.
+  (f) **Harness dry run.** `H2H_DRY=1 bench/run_arm.sh OURS A6DRY`: `--engine stub` on port 18199
+  (no GPU, no weights), no GPU lock, no q36-extra, no BOARD lines, 2 s quiet windows, output under
+  `results/dry/`. It runs every A6 cell under `set -u`; its log is
+  `results/receipts/A6-dryrun.log`. It is harness evidence only, never a measurement. The
+  12:57Z dry run (run_arm.sh sha256 bb433641…, exit 0, DONE written) ran all 15 cells in A6 order;
+  the 18091 gate voided `prefill-p2k` three times on real desk traffic (in_flight 1 at the end
+  check and in 1 Hz samples), so that stub cell has no valid try, which is the intended outcome.
+  The gate samples at 1 Hz and can miss a desk request shorter than one second between samples.
+  In dry mode the session log's "gpu lock held" line is wording only: no lock is taken.
+  (g) **Stub numbers are never reported.**
+  (h) **Kthread lookup.** `run_arm.sh` had the nvidia-modeset kthread as pid 1671; after the
+  ~03:52Z reboot it is pid 1609 and the lookup returned NA, which would have disabled the A2
+  kthread void rule silently. It is now resolved by name (`nvidia-modeset/kthread_q`) every
+  session; not found means NOT_RUN.
+  (i) **Prompt-prefix reuse is disclosed, not disabled.** OURS reuses a cached prefix of an earlier
+  request (`join: ... reuse N tok (snapshot ...)` in its server log); llama-server's default
+  `cache_prompt` reuses a slot's matching prefix (shown in its log). Request bodies stay as
+  section 3 for every arm. In OURS R1 reuse occurred only for prompts under 200 tokens (26 of 161
+  joins, 929 tokens in total) and never for the 512, 2k or 8k prompts. The report gives
+  reused-token counts per cell for every arm from the server logs, and a prefill comparison counts
+  only cells where both arms reused 0 tokens, or says which cells did not.
