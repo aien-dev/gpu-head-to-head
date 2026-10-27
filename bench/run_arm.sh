@@ -42,8 +42,17 @@ case $ARM in
 esac
 
 # A2: cpus 5-9,15-19 are Cortex-X925 (CPU part 0xd85), 0-4,10-14 Cortex-A725 (0xd87).
-# Every server gets the same X925 set minus core 18 (where the nvidia-modeset kthread sits);
-# the client runs on two A725 cores.
+# Every server gets 9 of the 10 X925 cores; the client runs on two A725 cores.
+# A4(e): the excluded X925 core is the one the nvidia-modeset kthread is on when the session takes
+# the GPU lock (core 18 if it is on an A725 core), chosen by pick_srv before the server starts.
+X925=" 5 6 7 8 9 15 16 17 18 19 "
+pick_srv() {
+  local k=$(ktpsr) c
+  case $X925 in *" $k "*) ;; *) k=18 ;; esac
+  SRV_LIST=" "; for c in $X925; do [ "$c" = "$k" ] || SRV_LIST="$SRV_LIST$c "; done
+  SRV_CPUS=$(echo $SRV_LIST | tr ' ' ',')
+  export H2H_SRV_CPUS=$SRV_CPUS
+}
 SRV_CPUS=5-9,15-17,19
 SRV_LIST=" 5 6 7 8 9 15 16 17 19 "
 CLI_CPUS=12-13
@@ -186,6 +195,8 @@ flock -w 900 9 || { board "$ARM $ROUND NOT STARTED: /tmp/aien-gb10.lock busy 900
 SECONDS=0
 board "START $ARM $ROUND gpu lock held (<=60 min; test port $PORT; live 18091 untouched)"
 echo "kthread_psr_start $(ktpsr)" >> "$LOGD/session.log"
+pick_srv
+echo "server_cpus $SRV_CPUS client_cpus $CLI_CPUS monitor_cpu $MON_CPU" >> "$LOGD/session.log"
 nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv > "$LOGD/gpu-before.csv" 2>&1
 BASE=$(memavail); echo "baseline_memavail_kB $BASE" > "$LOGD/mem-baseline.txt"
 sampler > "$LOGD/mem.tsv" & SAMP=$!

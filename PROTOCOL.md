@@ -231,3 +231,12 @@ on this one Spark, on the stated date and load.
   (d) **Order and lock priority (A3(e)).** The FP8 sessions OURS, VLLM, LLAMA x R1, R2 run; LLAMA16
   (A2) and the A3 arms are not started tonight. They are reported NOT_RUN (deferred: GPU-lock
   priority for OmegaVfio W0 and C1 per A3(e)), with the BF16 GGUF kept for a later window.
+  (e) **Server core set per session.** At 02:17Z, 6.5 min into VLLM R1, the nvidia-modeset kthread
+  moved from core 18 to server core 17 and stayed there, so the A2 rule voided every try of VLLM
+  R1's cells (`mem.tsv` column 5). From OURS R1 on, each session takes the 10 X925 cores minus the
+  one the kthread is on when the session takes the GPU lock (core 18 if it is on an A725 core):
+  always 9 X925 cores, the set logged in `session.log` and stored in every row. The kthread is
+  still never pinned or reniced (A2(c)); the A2 void rule is unchanged.
+  (f) **Session re-run.** A session in which any cell ended void after its 3 tries is re-run once
+  in full after the other FP8 sessions; the re-run replaces it, and the first stays under
+  `results/logs/attempts/` and `results/raw/attempts/`.
