@@ -267,7 +267,7 @@ else
   echo "$(ts) DRY RUN: stub engine on 18199, no GPU lock, no q36-extra" >> "$LOGD/session.log"
 fi
 SECONDS=0
-board "START $ARM $ROUND gpu lock held (<=60 min; test port $PORT; live 18091 untouched)"
+board "START $ARM $ROUND gpu lock held (<=60 min; test port $PORT; live 18091 $([ -n "$A6" ] && echo 'stopped by the A6 window' || echo untouched))"
 machine_state() {  # A6(f): clocks, power state, driver, load, memory, the resident server's state
   { echo "## $1 $(ts)"; uname -r
     nvidia-smi --query-gpu=name,driver_version,pstate,clocks.sm,clocks.mem,clocks.max.sm,power.draw,temperature.gpu,clocks_event_reasons.active --format=csv
