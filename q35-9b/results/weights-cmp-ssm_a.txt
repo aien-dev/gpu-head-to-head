@@ -1,0 +1,25 @@
+blk.0.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.1.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.10.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.12.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.13.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.14.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.16.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.17.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.18.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.2.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.20.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.21.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.22.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.24.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.25.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.26.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.28.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.29.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.30.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.4.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.5.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.6.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.8.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+blk.9.ssm_a max_ulp 0 max_rel 0 A_log dtype torch.float32
+WORST_ULP 0

@@ -1,0 +1,69 @@
+# Qwen3.5-9B on one GB10: our Omega engine, stock llama.cpp on CUDA, and stock llama.cpp on Omega
+
+Version 3, 2026-10-27, frozen before any timed number exists. Changes:
+- v1 (sha256 d57ff4dc…) put OURS FP8 against llama.cpp Q8_0. That breaks the first ask in ggml-org/llama.cpp discussion #31092, so v1 is withdrawn.
+- v2 made the headline pair BF16 against BF16.
+- v3 adds Drake's third configuration (stock llama.cpp on our GPU stack with no NVIDIA CUDA user-space libraries) and an independent correctness oracle (HF transformers).
+
+No timed cell has run under any version. The GPU runs so far were untimed: the BF16 llama.cpp reference capture, the OURS FP8 and BF16 correctness checks, and the HF oracle.
+
+Drake in chat, 2026-10-27:
+- "run a test between Llama CPP and our system, Omega CUDA++ ... use the Qwen 3.5 9B model"
+- "make sure we are doing it collaboratively in the repo with Llama CPP ... Make sure we're doing what she asked"
+- "Omega versus Llama CPP (pure Omega); Pure Llama with CUDA; Omega and Llama together with no CUDA"
+
+## The three configurations
+| # | Configuration | Arms | Same-file pairing |
+|---|---|---|---|
+| 1 | Pure Omega: our own engine, no llama.cpp, no NVIDIA user-space libs | OURS16 | OURS16 vs LLAMA16: same BF16 values. Layout differs, see results/WEIGHTS.md |
+| 2 | Pure llama.cpp on NVIDIA CUDA (stock release b11913) | LLAMA16, LLAMA8 | the baseline for 1 and 3 |
+| 3 | Stock llama.cpp with our GPU backend (aien-dev/ggml-omega `OmegaGB10`), no libggml-cuda, no NVIDIA user-space libs | LLOMEGA8, LLOMEGA16 if BF16 lands | LLOMEGA8 vs LLAMA8 and LLOMEGA16 vs LLAMA16: the identical GGUF file, identical llama.cpp front end. Only the GPU backend differs |
+
+In configuration 3, any op ggml-omega does not take runs on ggml's CPU backend. The op placement table (GPU or CPU, share of decode time) is published with the numbers. A slow result there is reported as it is.
+
+## What the llama.cpp side asked for (SIDDARTHAREDDY8, discussion #31092, 2026-10-24) and how this run meets it
+| Ask | Here |
+|---|---|
+| Same model file, same quantization, same prompt, same context size | Config 3 against config 2 uses the identical GGUF file (Q8_0, and BF16 if supported), so this ask is met exactly. Config 1 cannot read GGUF, so it uses the HF safetensors the GGUF was converted from. Every tensor was checked to hold the same values (130 byte-identical, the rest reordered or exactly transformed by the converter: results/WEIGHTS.md). Same prompts, same chat template, context 32768 for every arm. |
+| Prompt processing and generation reported separately | pp tok/s and tg tok/s are separate columns. They are never blended. |
+| State the offload | LLAMA*: `-ngl 999`, all layers on the GPU, verified from the load log. LLOMEGA*: `-ngl 999` onto the OmegaGB10 device, plus a per-op table of what ran on the GPU and what fell back to the CPU. OURS*: every layer on the GB10 GPU, with embedding lookup and sampling locations stated from the code. |
+| Repetitions and spread | 3 rounds × 3 reps per cell (after warm-ups). Reported as mean ± sd and median with min..max. llama-bench `-r 5` is included as a cross-check. |
+| Correctness before speed | The `agree` cell runs first: greedy tokens from both arms on the same 16 prompts, with the first divergence index reported. Garbage output voids that arm. |
+| Freeze machine state, publish the recipe | Recorded per session: driver version, GPU clocks and power state (`nvidia-smi -q -d CLOCK,POWER,PERFORMANCE`), load and other processes. Exact commands, llama.cpp b11913 version string, both commits, and every file hash are published in the repo. |
+| Disclose that the stacks differ | LLAMA* uses NVIDIA's user-space libraries (libcudart, libcublas, libcuda). OURS* and LLOMEGA* load none of them, which is checked from /proc/PID/maps. Every arm uses NVIDIA's open kernel module and GSP firmware. |
+
+## Arms
+| Arm | Engine | Weights | Role |
+|---|---|---|---|
+| OURS16 | aien-serve-http `--engine omega` (sc #790 + omega-mv #905 build) | BF16 safetensors, HF Qwen/Qwen3.5-9B rev c2022362 | headline, config 1 |
+| LLAMA16 | llama-server b11913, CUDA 13.4 runtime, `-ngl 999 -fa on` | BF16 GGUF, sha256 5d6fe481… | headline, config 2 |
+| LLAMA8 | same binary | Q8_0 GGUF, sha256 e1dc8c27… | headline, config 2 (pair for LLOMEGA8) |
+| LLOMEGA8 | stock llama-server, backend dir = CPU + libggml-omega.so only | the same Q8_0 GGUF file | headline, config 3 |
+| LLOMEGA16 | same as LLOMEGA8 | the same BF16 GGUF file | headline, config 3, only if ggml-omega gains BF16 MUL_MAT; otherwise NOT_RUN |
+| OURS8 | aien-serve-http, FP8 block-128 checkpoint | FP8 | reference only, never a headline (no llama.cpp FP8 type exists) |
+
+## Correctness oracle
+HF transformers 5.16.1 (nvcr.io/nvidia/vllm:26.09-py3) runs greedy BF16 on the same 16 prompts with the same chat template and thinking off: results/ref/HF-ORACLE.jsonl. It is the model's reference implementation and shares no code with any arm. Every arm's `agree` output is compared with the oracle and with LLAMA16: first divergence in characters and in tokens, using the model's tokenizer.
+
+## Proof of "no NVIDIA user-space libraries"
+For OURS* and LLOMEGA*, the shared objects the running server mapped are captured from /proc/PID/maps (maps-so.txt). It must list none of libcuda, libcudart, libcublas, libcublasLt, libnvrtc, libnvidia-ptxjitcompiler. LLAMA* is the negative control and must list them. NVIDIA's open kernel module and GSP firmware are used by every arm and are disclosed.
+
+## Cells (one HTTP client for all arms: HeadToHead repo bench/bench.py, temperature 0, thinking off)
+1. `agree`: c=1, 128 tokens, 16 decode prompts, 1 rep each. Correctness gate, runs first.
+2. `decode-c1`: c=1, max 256 tokens, decode.jsonl, 2 warm-ups + 3 reps. Gives tg tok/s.
+3. `prefill-p512`, `prefill-p2k`, `prefill-p8k`: c=1, max 1 token, `--nonce`, 2 warm-ups + 3 reps. Gives pp tok/s and TTFT.
+4. `decode-c8`: LLAMA arms with `-np 8` only, as an aggregate reference. NOT_RUN for OURS, whose dense door has no batching.
+- Server cpus 5-9,15-19, client cpus 0-1. Quiet gate before every cell: bench/quiet.py `--window 60 --max-load 6`. A cell that runs without a quiet window is marked LOADED.
+
+## Design
+- 3 rounds. In each round every arm runs once with a fresh server start, and load time is recorded. Arm order per round comes from `random.Random(9)`, and the order is logged.
+- No re-runs by choice. A round is repeated only for a recorded machine fault, and both attempts are reported.
+
+## Metrics
+- tg tok/s per request = (completion_tokens − 1) / (t_last − t_first).
+- pp tok/s per request = prompt_tokens / (t_first − t_send). This includes HTTP and the first sampled token, and that is stated.
+- Per arm and cell: mean ± sd, median, min..max over all non-warm-up requests, computed in Wolfram with the queries saved.
+- Headline: OURS16 / LLAMA16 ratio of median tg (decode-c1) and of median pp per prompt size.
+
+## Not claimed
+- One machine, one model, single-stream generation. Not batch serving. Any cell not run is NOT_RUN.
