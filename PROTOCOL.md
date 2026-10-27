@@ -264,3 +264,7 @@ on this one Spark, on the stated date and load.
   logs to `results/logs/attempts/<ARM>-<R>-lockwait-<time>/` and retries the same session, instead
   of recording it NOT_RUN and skipping it. The first OURS R1 lock wait (02:51Z, Provenance holding
   the lock) was stopped by hand before that change and is kept the same way.
+  (f) **Loopback guard (Main).** OURS now gets `--bind 127.0.0.1` explicitly (VLLM, SGLANG and
+  llama-server already had `--host 127.0.0.1`). After the server answers and before the first
+  cell, `run_arm.sh` writes `ss -ltnH 'sport = :<port>'` to `results/logs/<ARM>-<R>/listen.txt`;
+  any listener that is not 127.0.0.1 makes the session a FAIL: server stopped, no cell run.

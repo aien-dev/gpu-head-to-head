@@ -89,7 +89,7 @@ start_server() {
       ( cd /home/drakestapleton/.local/state/aien-q36/bin-19173f9e && \
         exec env AIEN_Q36_STROKE=1 Q36_BATCH_BIN=bin-19173f9e AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock \
             AIEN_GB10_LOCK_HELD=1 \
-        taskset -c $SRV_CPUS ./aien-serve-http --engine omega --model-dir "$MODEL" --port 18190 --max-context 49152 \
+        taskset -c $SRV_CPUS ./aien-serve-http --engine omega --model-dir "$MODEL" --bind 127.0.0.1 --port 18190 --max-context 49152 \
              --max-tokens-cap 16384 --thinking off --batch-slots 8 ) < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
     VLLM|VLLM4)
@@ -130,6 +130,11 @@ ready() {
     sleep 1
   done
   return 1
+}
+
+loopback_only() {  # A5(f): every listener on the test port must be 127.0.0.1, else the arm FAILs
+  ss -ltnH "sport = :$PORT" > "$LOGD/listen.txt"
+  [ -s "$LOGD/listen.txt" ] && ! awk '{print $4}' "$LOGD/listen.txt" | grep -qv '^127\.0\.0\.1:'
 }
 
 cell() {  # metric concurrency max_tokens promptfile [extra]
@@ -205,7 +210,7 @@ T0=$(date +%s.%N)
 start_server
 ( sleep 3300; board "T-5 $ARM $ROUND: gpu lock released by 60 min" ; sleep 300; \
   touch "$LOGD/TIMEOUT"; board "$ARM $ROUND hit 60 min; harness stops its server"; stop_server ) & WD=$!
-if ready; then
+if ready && loopback_only; then
   echo "load_seconds $(echo "$(date +%s.%N) - $T0" | bc)" >> "$LOGD/session.log"
   case $ARM in LLAMA*) LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR "$LLAMA_DIR/llama-server" --version > "$LOGD/version.txt" 2>&1 ;; esac
   [ -n "$CTR" ] && docker exec $CTR pip list 2>/dev/null | grep -i -E '^(vllm|sglang|torch|transformers|flashinfer)' > "$LOGD/version.txt"
@@ -228,8 +233,10 @@ if ready; then
   board "$ARM $ROUND cells done at $SECONDS s"
   touch "$LOGD/DONE"
 else
-  echo "server did not become ready (see results/logs/$ARM-$ROUND/server.log)" > "$LOGD/NOT_RUN"
-  board "$ARM $ROUND NOT_RUN: server did not become ready (see results/logs/$ARM-$ROUND/server.log)"
+  if [ -s "$LOGD/listen.txt" ]; then why="FAIL: listener on port $PORT is not loopback-only (listen.txt); server stopped"
+  else why="server did not become ready (see results/logs/$ARM-$ROUND/server.log)"; fi
+  echo "$why" > "$LOGD/NOT_RUN"
+  board "$ARM $ROUND NOT_RUN: $why"
 fi
 stop_server
 kill $WD 2>/dev/null; pkill -P $WD 2>/dev/null
