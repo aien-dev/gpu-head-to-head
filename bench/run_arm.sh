@@ -55,8 +55,8 @@ pick_srv() {
 }
 SRV_CPUS=5-9,15-17,19
 SRV_LIST=" 5 6 7 8 9 15 16 17 19 "
-CLI_CPUS=12-13
-MON_CPU=11   # coremon.py (A4), an A725 core outside the server and client sets
+CLI_CPUS=0-1   # A5(d): A725 cores outside the 10-14 build set other lanes use
+MON_CPU=2      # coremon.py (A4), an A725 core outside the server and client sets
 export H2H_SRV_CPUS=$SRV_CPUS H2H_CLI_CPUS=$CLI_CPUS
 KT=1671   # nvidia-modeset kthread; never reniced or pinned during the study (A2)
 ktpsr() { awk '{print $39}' /proc/$KT/stat 2>/dev/null || echo NA; }

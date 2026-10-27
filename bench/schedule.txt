@@ -2,11 +2,12 @@
 # The driver takes the first line without DONE/NOT_RUN before every session, so verified arms
 # (SGLang, 4-bit) are inserted here while earlier sessions run.
 OURS:R1
-VLLM:R1
+# VLLM:R1 attempt 1 is void (A4(e)) and was stopped (A5); it re-runs in full last, per A4(f)
 LLAMA:R1
 LLAMA:R2
 VLLM:R2
 OURS:R2
+VLLM:R1
 # optional BF16 reference arm (A2): deferred by A3(e)/A4(d), NOT_RUN tonight
 #LLAMA16:R1
 #LLAMA16:R2

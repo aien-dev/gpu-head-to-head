@@ -240,3 +240,22 @@ on this one Spark, on the stated date and load.
   (f) **Session re-run.** A session in which any cell ended void after its 3 tries is re-run once
   in full after the other FP8 sessions; the re-run replaces it, and the first stays under
   `results/logs/attempts/` and `results/raw/attempts/`.
+- **A5 (2026-10-27 ~02:48Z, HeadToHead after the second restart; before any OURS/LLAMA cell):**
+  (a) **Accidental stop.** At about 02:45Z Main relayed a STOP-all order that was a misread of
+  Drake's instruction (Drake afterwards: "I didn't mean to stop everything. Just keep them
+  going."). The driver was killed and the `h2h-vllm` container stopped with `docker stop`
+  during VLLM R1's grid cell `p8k-n1` (last memory sample 02:45:55Z; the server log shows the
+  shutdown with 7 requests running). No other session was running; OURS R1 had not started.
+  (b) **Effect.** None on any result: VLLM R1 attempt 1 was already void in every cell under
+  A4(e) (kthread on server cores 17, then 16) and had been scheduled for a full re-run under A4(f).
+  Its raw file, logs and void records move to `results/raw/attempts/VLLM-R1-a1.jsonl`,
+  `results/raw/attempts/VLLM-R1-a1-voids.jsonl` and
+  `results/logs/attempts/VLLM-R1-a1-kthread-void-stopped/`; none of its numbers is reported.
+  (c) **Order.** `bench/schedule.txt` now reads OURS R1, LLAMA R1, LLAMA R2, VLLM R2, OURS R2,
+  VLLM R1 (the re-run last, per A4(f)). Apart from (d), nothing changes: same cells, server core
+  rule and void rules.
+  (d) **Quiet window and client cores.** Other lanes resumed after the stop; their builds run on
+  A725 cores 10-14 only (Main's rule), which held the client (12-13) and coremon (11). From OURS
+  R1 on, the client runs on A725 cores 0-1 and coremon on A725 core 2 (`run_arm.sh`), so builds
+  never share a core with the measurement side; every row still records its core lists. The A2
+  gate and the A4(a) in-cell foreign-process check on the server cores are unchanged.
