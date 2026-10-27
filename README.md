@@ -1,0 +1,38 @@
+# gpu-head-to-head
+
+Same-machine, end-to-end comparison of three inference stacks serving **Qwen3.6-35B-A3B** on one
+NVIDIA DGX Spark (GB10, sm_121): our `aien-serve-http`, vLLM, and llama.cpp. This is bar **P0** of
+the GPU-stack plan: prove the numbers before claiming them, and publish them even when we lose.
+
+- Protocol (predeclared, committed before the first run): [PROTOCOL.md](PROTOCOL.md)
+- Results table: [results/RESULTS.md](results/RESULTS.md)
+- Raw request rows, server logs, memory samples, versions: [results/](results/)
+- Client and scripts: [bench/](bench/)
+
+Every number here is end to end (HTTP client on the same host). Chip-only numbers from other repos
+are never mixed into these tables.
+
+## Connected repositories
+
+This repo is a child of the GPU stack. It pins its parents by sha:
+
+| Parent | Pinned sha | Role here |
+|--------|-----------|-----------|
+| [aien-dev/CUDApp](https://github.com/aien-dev/CUDApp) | `780a0af1f08c1786ea53a4e8702ca8bb1396fdbb` (main, 2026-10-27) | GPU stack source of truth (CUDA++) |
+| [aien-dev/aien-sovereign-core-mv](https://github.com/aien-dev/aien-sovereign-core-mv) (was `aien-sovereign-core`) | `f0230a59eec985c3290ac78c0cc04322bacf9f0a` | source of the measured `aien-serve-http` binary `bin-19173f9e` |
+
+The measured binary `aien-serve-http` sha256 `19173f9ec3b609fe79af644f84741d8808b92ea8eb3ecec4bc945af6f22b3aeb`
+links `libomega_gpu.a` sha256 `110295ef23dc7561eea371636347c005835f37b82c22f92401aa8a887a3ca990`
+built from omega-mv `ship/motor-l387` `6de999da` (see `results/logs/versions/BUILD.txt`). It predates
+the CUDApp cutover; the CUDApp pin records the GPU-stack state at the time of the measurement.
+
+## Host tools
+
+`bench/*.py` are host measurement tools (Python 3 stdlib; `make_prompts.py` and `agree.py` also use
+`tokenizers` from inside the pinned vLLM container). They are not product code and ship nothing.
+Omega replacement: none yet; an Omega HTTP/SSE client is the replacement path once the Omega
+standard library has sockets and threads.
+
+## License
+
+Apache-2.0 WITH LLVM-exception, see [LICENSE](LICENSE).

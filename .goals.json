@@ -1,0 +1,15 @@
+{
+  "schema": "goals/v1",
+  "project": "gpu-head-to-head",
+  "parents": [
+    {"repo": "aien-dev/CUDApp", "sha": "780a0af1f08c1786ea53a4e8702ca8bb1396fdbb"},
+    {"repo": "aien-dev/aien-sovereign-core-mv", "sha": "f0230a59eec985c3290ac78c0cc04322bacf9f0a"}
+  ],
+  "goals": [
+    {
+      "id": "P0",
+      "title": "Same-Spark end-to-end head-to-head: aien-serve-http vs vLLM vs llama.cpp on Qwen3.6-35B-A3B, published even if we lose",
+      "status": "in_progress"
+    }
+  ]
+}
