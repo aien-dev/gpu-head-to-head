@@ -1,0 +1,23 @@
+# 2026-10-27T01:58:50Z cpu topology (A2). cpu_capacity from sysfs; CPU part from /proc/cpuinfo (0xd85 Cortex-X925, 0xd87 Cortex-A725)
+cpu0 capacity=718 part=0xd87 max_khz=2808000
+cpu1 capacity=718 part=0xd87 max_khz=2808000
+cpu2 capacity=718 part=0xd87 max_khz=2808000
+cpu3 capacity=718 part=0xd87 max_khz=2808000
+cpu4 capacity=718 part=0xd87 max_khz=2808000
+cpu5 capacity=997 part=0xd85 max_khz=3900000
+cpu6 capacity=997 part=0xd85 max_khz=3900000
+cpu7 capacity=997 part=0xd85 max_khz=3900000
+cpu8 capacity=997 part=0xd85 max_khz=3900000
+cpu9 capacity=997 part=0xd85 max_khz=3900000
+cpu10 capacity=731 part=0xd87 max_khz=2808000
+cpu11 capacity=731 part=0xd87 max_khz=2808000
+cpu12 capacity=731 part=0xd87 max_khz=2808000
+cpu13 capacity=731 part=0xd87 max_khz=2808000
+cpu14 capacity=731 part=0xd87 max_khz=2808000
+cpu15 capacity=1017 part=0xd85 max_khz=3900000
+cpu16 capacity=1017 part=0xd85 max_khz=3900000
+cpu17 capacity=1017 part=0xd85 max_khz=3900000
+cpu18 capacity=1017 part=0xd85 max_khz=3900000
+cpu19 capacity=1024 part=0xd85 max_khz=3900000
+kthread 1671 affinity: pid 1671's current affinity list: 0-19
+kthread 1671 nice: 0

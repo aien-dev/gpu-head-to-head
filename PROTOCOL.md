@@ -166,6 +166,8 @@ on this one Spark, on the stated date and load.
   builds or tests).
   Additionally (Main, same day):
   (a) The core sets of section 6: identical Cortex-X925 server set minus core 18 for every arm,
+  client on Cortex-A725, core lists in every row. The split is recorded in `results/env/cpu.txt`
+  from sysfs `cpu_capacity` (X925 997-1024, A725 718-731) and `/proc/cpuinfo` CPU part.
   client on Cortex-A725, core lists in every row.
   (b) The kthread `psr` sampling and void/re-run rule of section 8.
   (c) Environment fact: nobody renices or pins the nvidia-modeset kthread during the study, so the
