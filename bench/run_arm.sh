@@ -97,6 +97,12 @@ cell() {  # metric concurrency max_tokens promptfile [extra]
 # ---- session ----
 # wait for a quiet host before taking the lock, so the 60-min hold is not spent waiting
 while ! awk -v l="$(cut -d' ' -f1 /proc/loadavg)" 'BEGIN{exit !(l<4)}'; do sleep 30; done
+if [ "$ARM" = LLAMA ]; then  # the GGUF must be fully written (conversion log ends EXIT 0)
+  until grep -q '^EXIT 0$' "$H2H/gguf/convert.log" 2>/dev/null; do
+    grep -q '^EXIT [1-9]' "$H2H/gguf/convert.log" 2>/dev/null && { board "LLAMA $ROUND NOT_RUN: GGUF conversion failed"; exit 4; }
+    sleep 30
+  done
+fi
 exec 9>/tmp/aien-gb10.lock
 echo "$(ts) quiet (load1 $(cut -d' ' -f1 /proc/loadavg)); waiting for /tmp/aien-gb10.lock" >> "$LOGD/session.log"
 flock -w 900 9 || { board "$ARM $ROUND NOT STARTED: /tmp/aien-gb10.lock busy 900 s"; exit 3; }
