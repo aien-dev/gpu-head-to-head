@@ -87,19 +87,29 @@ count is stored per row. That is part of the end-to-end result and is stated bes
   env `AIEN_Q36_STROKE=1 Q36_BATCH_BIN=bin-19173f9e AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock
   AIEN_GB10_LOCK_HELD=1` (the harness holds `/tmp/aien-gb10.lock` for the whole session).
   Identical to the 2026-10-27T01:11:57Z live snapshot except port and lock path.
-- VLLM: `docker run --rm --runtime nvidia --gpus all --ipc host -p 127.0.0.1:18191:8000
-  -v <model>:/model:ro <image@digest> vllm serve /model --served-model-name q36
+- VLLM: `docker run --rm --runtime nvidia --gpus all --ipc host --network host --cpuset-cpus <SRV>
+  -v <model>:/model:ro <image@digest> vllm serve /model --served-model-name q36 --host 127.0.0.1 --port 18191
   --max-model-len 49152 --max-num-seqs 16 --gpu-memory-utilization <U>
   --language-model-only`. Everything else default (CUDA graphs, prefix
   cache, chunked prefill as the image ships them). `<U>` is the smallest of 0.50/0.60/0.70 that starts;
   the value used is recorded.
 - LLAMA: `llama-server -m q36-q8_0.gguf --host 127.0.0.1 --port 18192 -ngl 999 -fa on
   -c 196608 -np 16 --jinja` (12288 tokens per slot, 16 slots). Everything else default.
-- Ports 18190-18192 only. Port 18091 is never touched.
+- Ports 18190-18193 only. Port 18091 is never touched.
+- CPU pinning (A2): cpus 5-9 and 15-19 are Cortex-X925 (`/proc/cpuinfo` CPU part 0xd85), cpus 0-4
+  and 10-14 are Cortex-A725 (0xd87). Every server arm gets the identical X925 set `5-9,15-17,19`
+  (core 18 excluded: the nvidia-modeset kthread sits there). OURS and llama-server via `taskset -c`,
+  VLLM via `--cpuset-cpus`. `bench.py` runs on A725 cores `12-13`. Both lists are stored in every row
+  (`server_cpus`, `client_cpus`). VLLM uses host networking so no docker-proxy sits in the path.
+- LLAMA16 (A2, optional BF16 reference arm): same llama-server and flags as LLAMA on port 18193,
+  with `q36-35b-a3b-bf16.gguf` (converted from the same checkpoint with `--outtype bf16`, i.e. the
+  FP8 weights dequantized to BF16) and `--no-mmap` (a 70 GB file mapped beside 70 GB of device
+  buffers would not fit in 121 GiB of unified memory).
 
 ## 7. Schedule, repetitions, statistics
 
-- Two rounds, interleaved by arm: **R1 = OURS, VLLM, LLAMA; R2 = LLAMA, VLLM, OURS.**
+- Two rounds, interleaved by arm: **R1 = OURS, VLLM, LLAMA; R2 = LLAMA, VLLM, OURS.** Then, only if
+  the night's quiet window still has room, LLAMA16 R1 and R2 (A2).
 - One model in memory at a time. Between arms: server stopped, process gone, `nvidia-smi
   --query-compute-apps` empty, MemAvailable back to within 2 GiB of the pre-launch baseline.
 - Per arm session, cells in this order, each with **2 warmup batches then 3 measured batches**:
@@ -115,10 +125,19 @@ count is stored per row. That is part of the end-to-end result and is stated bes
 
 ## 8. Load and GPU-lock gates
 
-- Timing cells run only when `load1 < 4` at cell start. The harness waits (polling 15 s) before each
-  cell. `load1` at start and end is stored in every row. A row with `load1_start >= 4` (should the
-  gate be overridden by a timeout) is published but excluded from the headline table and labeled
-  LOADED.
+- (A2) A session starts only when, over a 60 s window, no process outside the harness used more than
+  20% of one CPU and `load1 < 6` (`bench/quiet.py`). Not gated, but recorded in every check: the
+  nvidia-modeset kthread and the `omp` agent-harness process that hosts this lane (it averages ~38%
+  of one core while other agents run; gating on it would never start). Before every cell the same
+  foreign-process check runs over 10 s with no load threshold (the arm's own server is excluded).
+  Every check is stored in `results/logs/<arm>-<round>/quiet.jsonl`; `vmstat -t 1` and `load1` (per
+  row) are recorded for every session. A cell that ran after the gate timed out (50 min into the
+  session) is labeled LOADED and excluded from the headline table.
+- (A2) The nvidia-modeset kthread (pid 1671, affinity 0-19, not pinned) has its `psr` (field 39 of
+  `/proc/1671/stat`) sampled every 1 s in `mem.tsv` (5th column) and logged at session start and
+  end. A cell during which any sample shows it on a server core is VOID: its id goes to
+  `results/voids.jsonl`, its rows stay in the raw file but are dropped by `extract.py`, and the cell
+  is re-run (at most 3 tries). The void count is reported.
 - GPU: each arm session runs inside `flock -w 900 /tmp/aien-gb10.lock`, at most 60 minutes, with
   BOARD lines at START, T-5 (55 min) and END. The harness kills its own server at 60 min.
   No module reloads, no reboots, `/dev/nvidia-modeset` is never opened by the harness.
@@ -139,3 +158,22 @@ on this one Spark, on the stated date and load.
   `bench.py` now retries 429/503 every 50 ms (bounded by the 1800 s request timeout), keeps `t_send`
   at the first attempt, and records `busy_retries`. Section 5 updated. Server launches read
   `/dev/null` as stdin (OURS exits silently when started in the background without it).
+- **A2 (2026-10-27, before any timed run, Main's decision):** `load1 < 4` is unreachable on this
+  host (the nvidia-modeset kthread holds one core permanently; other lanes' short bursts dominate
+  load1 while the CPU is ~68% idle). The gate is replaced by the 20%-CPU foreign-process check plus
+  `load1 < 6` (section 8), servers and client are pinned to fixed cores (section 6), VLLM uses host
+  networking, and vmstat is logged per session. Other lanes are in a declared quiet window (no local
+  builds or tests).
+  Additionally (Main, same day):
+  (a) The core sets of section 6: identical Cortex-X925 server set minus core 18 for every arm,
+  client on Cortex-A725, core lists in every row.
+  (b) The kthread `psr` sampling and void/re-run rule of section 8.
+  (c) Environment fact: nobody renices or pins the nvidia-modeset kthread during the study, so the
+  machine state is the same for every arm.
+  (d) Optional reference arm LLAMA16 (section 6). Cost: two more sessions of at most 60 min each,
+  during which the quiet window keeps blocking other lanes; they run last and are dropped (listed as
+  a follow-up, NOT_RUN) if the window closes first. If it runs, M6 also reports each arm's agreement
+  against LLAMA16, named as **llama.cpp b11913 with BF16 weights dequantized from the FP8
+  checkpoint**. It is a reference engine, not ground truth: no arm runs the model unquantized, and
+  the checkpoint itself is FP8. Pairwise agreement between OURS, VLLM and LLAMA is labeled as mixing
+  engine and quantization effects.

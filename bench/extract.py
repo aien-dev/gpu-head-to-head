@@ -4,18 +4,23 @@
 Every derived number (rates, medians, IQRs) is computed in Wolfram from these raw fields
 (PROTOCOL.md section 7). Rows are kept as {arm, round, metric, rep, batch, stream, load1_start,
 t_send, t_first, t_last, prompt_tokens, completion_tokens, busy_retries, ok}. Warmup rows are
-dropped here (they stay in the raw files). Timestamps are printed with full repr precision.
+dropped here (they stay in the raw files), and so are rows of cells voided under amendment A2
+(results/voids.jsonl). Timestamps are printed with full repr precision.
 """
 import glob
 import json
+import os
 import sys
 
 REPO = sys.argv[1]
+void = set()
+if os.path.exists(REPO + "/results/voids.jsonl"):
+    void = {json.loads(l)["cell_run"] for l in open(REPO + "/results/voids.jsonl") if l.strip()}
 rows = []
 for path in sorted(glob.glob(REPO + "/results/raw/*.jsonl")):
     for line in open(path):
         r = json.loads(line)
-        if r["warmup"] or r["arm"] == "STUB":
+        if r["warmup"] or r["arm"] == "STUB" or r.get("cell_run") in void:
             continue
         u = r.get("usage") or {}
         ok = (r["error"] is None and r["http_status"] == 200 and r["t_first"] is not None

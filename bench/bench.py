@@ -117,7 +117,10 @@ def run_batch(args, prompts, rep, warm):
                   "warmup": warm, "concurrency": len(prompts), "stream_index": i,
                   "batch_id": batch_id, "load1_start": l1, "load1_end": load1(),
                   "wall_utc": ts, "max_tokens": args.max_tokens,
-                  "prompt_id": args.prompt_ids[i] if args.prompt_ids else None})
+                  "prompt_id": args.prompt_ids[i] if args.prompt_ids else None,
+                  "cell_run": args.cell_run,
+                  "server_cpus": os.environ.get("H2H_SRV_CPUS"),
+                  "client_cpus": os.environ.get("H2H_CLI_CPUS")})
         out.append(r)
     return out
 
@@ -139,6 +142,7 @@ def main():
     ap.add_argument("--nonce", action="store_true",
                     help="prefix each prompt with a unique nonce line so no prefix cache can hit")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--cell-run", default="", help="id of this cell invocation (voiding unit, A2)")
     args = ap.parse_args()
 
     allp = [json.loads(l) for l in open(args.prompts) if l.strip()]

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One arm session of the head-to-head (PROTOCOL.md sections 6-8).
-# usage: bench/run_arm.sh OURS|VLLM|LLAMA R1|R2
+# usage: bench/run_arm.sh OURS|VLLM|LLAMA|LLAMA16 R1|R2
 # Holds /tmp/aien-gb10.lock for the whole session (at most 60 min), writes BOARD lines,
 # starts exactly one server, runs every cell, stops the server and checks the unload.
 set -u
@@ -12,6 +12,7 @@ VLLM_IMG=nvcr.io/nvidia/vllm@sha256:557747337846eecf34486866f3d992383c6f8af869fd
 LLAMA_DIR=$H2H/dl/llama-bin/llama-b11913
 CUDART_DIR=$H2H/dl/llama-bin/cudart-llama-b11913-bin-ubuntu-cuda-13.4-arm64
 GGUF=$H2H/gguf/q36-35b-a3b-q8_0.gguf
+GGUF16=$H2H/gguf/q36-35b-a3b-bf16.gguf
 BOARD=/home/drakestapleton/handoffs/BOARD.md
 VLLM_UTIL=${VLLM_UTIL:-0.50}
 OUT=$REPO/results/raw/$ARM-$ROUND.jsonl
@@ -24,24 +25,38 @@ case $ARM in
   OURS)  PORT=18190; PAT='aien-serve-http.*--port 18190'; MID=qwen3.6-35b-a3b-fp8 ;;
   VLLM)  PORT=18191; PAT='vllm serve|VLLM::|EngineCore'; MID=q36 ;;
   LLAMA) PORT=18192; PAT='llama-server.*--port 18192'; MID=q36 ;;
+  LLAMA16) PORT=18193; PAT='llama-server.*--port 18193'; MID=q36 ;;
   *) echo "bad arm"; exit 2 ;;
 esac
 
-wait_quiet() {  # PROTOCOL 8: load1 < 4 before each timing cell
-  local waited=0
+# A2: cpus 5-9,15-19 are Cortex-X925 (CPU part 0xd85), 0-4,10-14 Cortex-A725 (0xd87).
+# Every server gets the same X925 set minus core 18 (where the nvidia-modeset kthread sits);
+# the client runs on two A725 cores.
+SRV_CPUS=5-9,15-17,19
+SRV_LIST=" 5 6 7 8 9 15 16 17 19 "
+CLI_CPUS=12-13
+export H2H_SRV_CPUS=$SRV_CPUS H2H_CLI_CPUS=$CLI_CPUS
+KT=1671   # nvidia-modeset kthread; never reniced or pinned during the study (A2)
+ktpsr() { awk '{print $39}' /proc/$KT/stat 2>/dev/null || echo NA; }
+
+mytree() {  # pids whose process trees belong to this session
+  echo $$ $SPID
+  [ "$ARM" = VLLM ] && docker inspect -f '{{.State.Pid}}' h2h-vllm 2>/dev/null
+}
+
+wait_quiet() {  # PROTOCOL A2: before each cell, no foreign process >20% CPU over 10 s
   while :; do
-    l=$(cut -d' ' -f1 /proc/loadavg)
-    if awk -v l="$l" 'BEGIN{exit !(l<4)}'; then return 0; fi
-    [ $waited -eq 0 ] && echo "$(ts) waiting for load1<4 (now $l)" >> "$LOGD/session.log"
-    sleep 15; waited=$((waited+15))
-    if [ $((SECONDS)) -ge 3000 ]; then echo "$(ts) load gate timeout, load1=$l" >> "$LOGD/session.log"; return 1; fi
+    if python3 "$REPO/bench/quiet.py" --window 10 --max-load 0 --exclude-tree $(mytree) >> "$LOGD/quiet.jsonl"; then
+      return 0
+    fi
+    if [ $SECONDS -ge 3000 ]; then echo "$(ts) quiet gate timeout" >> "$LOGD/session.log"; return 1; fi
   done
 }
 
-sampler() {  # 1 Hz: epoch MemAvailable_kB summed_RSS_kB load1
+sampler() {  # 1 Hz: epoch MemAvailable_kB summed_RSS_kB load1 kthread_psr
   while :; do
     rss=$(for p in $(pgrep -f "$PAT"); do awk '/VmRSS/{print $2}' /proc/$p/status 2>/dev/null; done | awk '{s+=$1}END{print s+0}')
-    echo "$(date +%s) $(memavail) $rss $(cut -d' ' -f1 /proc/loadavg)"
+    echo "$(date +%s) $(memavail) $rss $(cut -d' ' -f1 /proc/loadavg) $(ktpsr)"
     sleep 1
   done
 }
@@ -52,18 +67,20 @@ start_server() {
       ( cd /home/drakestapleton/.local/state/aien-q36/bin-19173f9e && \
         env AIEN_Q36_STROKE=1 Q36_BATCH_BIN=bin-19173f9e AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock \
             AIEN_GB10_LOCK_HELD=1 \
-        exec ./aien-serve-http --engine omega --model-dir "$MODEL" --port 18190 --max-context 49152 \
+        exec taskset -c $SRV_CPUS ./aien-serve-http --engine omega --model-dir "$MODEL" --port 18190 --max-context 49152 \
              --max-tokens-cap 16384 --thinking off --batch-slots 8 ) < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
     VLLM)
-      docker run --rm --name h2h-vllm --runtime nvidia --gpus all --ipc host -p 127.0.0.1:18191:8000 \
-        -v "$MODEL":/model:ro "$VLLM_IMG" vllm serve /model --served-model-name q36 --port 8000 \
+      docker run --rm --name h2h-vllm --runtime nvidia --gpus all --ipc host --network host \
+        --cpuset-cpus $SRV_CPUS -v "$MODEL":/model:ro "$VLLM_IMG" vllm serve /model --served-model-name q36 \
+        --host 127.0.0.1 --port 18191 \
         --max-model-len 49152 --max-num-seqs 16 --gpu-memory-utilization "$VLLM_UTIL" \
         --language-model-only < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
-    LLAMA)
-      LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR "$LLAMA_DIR/llama-server" -m "$GGUF" --host 127.0.0.1 \
-        --port 18192 -ngl 999 -fa on -c 196608 -np 16 --jinja < /dev/null > "$LOGD/server.log" 2>&1 &
+    LLAMA|LLAMA16)
+      if [ "$ARM" = LLAMA ]; then G=$GGUF; MMAP=; else G=$GGUF16; MMAP=--no-mmap; fi
+      LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR taskset -c $SRV_CPUS "$LLAMA_DIR/llama-server" -m "$G" --host 127.0.0.1 \
+        --port $PORT -ngl 999 -fa on -c 196608 -np 16 --jinja $MMAP < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
   esac
 }
@@ -88,36 +105,54 @@ ready() {
 }
 
 cell() {  # metric concurrency max_tokens promptfile [extra]
+  # A2: a cell during which the kthread was sampled on a server core is void and re-run (<=3 tries)
   local metric=$1 c=$2 mt=$3 pf=$4; shift 4
-  wait_quiet || { echo "$(ts) cell $metric ran past load gate timeout (LOADED)" >> "$LOGD/session.log"; }
-  python3 "$REPO/bench/bench.py" --port $PORT --model $MID --arm $ARM --round $ROUND --metric "$metric" \
-    --prompts "$REPO/prompts/$pf" --concurrency $c --max-tokens $mt --out "$OUT" "$@" 2>> "$LOGD/client.log"
+  local try t0 t1 hit
+  for try in 1 2 3; do
+    [ -e "$LOGD/TIMEOUT" ] && return
+    wait_quiet || { echo "$(ts) cell $metric ran without a quiet window (LOADED)" >> "$LOGD/session.log"; }
+    local id="$ARM-$ROUND-$metric-t$try"
+    t0=$(date +%s)
+    taskset -c $CLI_CPUS python3 "$REPO/bench/bench.py" --port $PORT --model $MID --arm $ARM --round $ROUND --metric "$metric" \
+      --prompts "$REPO/prompts/$pf" --concurrency $c --max-tokens $mt --out "$OUT" --cell-run "$id" "$@" 2>> "$LOGD/client.log"
+    sleep 2; t1=$(date +%s)
+    hit=$(awk -v a=$t0 -v b=$t1 -v s="$SRV_LIST" '$1>=a && $1<=b && index(s, " "$5" ") {print $5; exit}' "$LOGD/mem.tsv")
+    if [ -z "$hit" ]; then return; fi
+    echo "{\"cell_run\": \"$id\", \"kthread_psr\": $hit, \"t0\": $t0, \"t1\": $t1}" >> "$REPO/results/voids.jsonl"
+    echo "$(ts) VOID $id: nvidia-modeset kthread on server core $hit" >> "$LOGD/session.log"
+  done
 }
 
 # ---- session ----
-# wait for a quiet host before taking the lock, so the 60-min hold is not spent waiting
-while ! awk -v l="$(cut -d' ' -f1 /proc/loadavg)" 'BEGIN{exit !(l<4)}'; do sleep 30; done
-if [ "$ARM" = LLAMA ]; then  # the GGUF must be fully written (conversion log ends EXIT 0)
-  until grep -q '^EXIT 0$' "$H2H/gguf/convert.log" 2>/dev/null; do
-    grep -q '^EXIT [1-9]' "$H2H/gguf/convert.log" 2>/dev/null && { board "LLAMA $ROUND NOT_RUN: GGUF conversion failed"; exit 4; }
+# PROTOCOL A2 (Main's gate): start only when no foreign process used >20% CPU for 60 s and load1 < 6,
+# before taking the lock, so the 60-min hold is not spent waiting
+SPID=
+until python3 "$REPO/bench/quiet.py" --window 60 --max-load 6 --exclude-tree $$ >> "$LOGD/quiet.jsonl"; do :; done
+for pair in LLAMA:convert.log LLAMA16:convert-bf16.log; do  # the GGUF must be fully written
+  [ "$ARM" = "${pair%%:*}" ] || continue
+  CL=$H2H/gguf/${pair#*:}
+  until grep -q '^EXIT 0$' "$CL" 2>/dev/null; do
+    grep -q '^EXIT [1-9]' "$CL" 2>/dev/null && { board "$ARM $ROUND NOT_RUN: GGUF conversion failed ($CL)"; exit 4; }
     sleep 30
   done
-fi
+done
 exec 9>/tmp/aien-gb10.lock
-echo "$(ts) quiet (load1 $(cut -d' ' -f1 /proc/loadavg)); waiting for /tmp/aien-gb10.lock" >> "$LOGD/session.log"
+echo "$(ts) quiet: $(tail -1 "$LOGD/quiet.jsonl"); waiting for /tmp/aien-gb10.lock" >> "$LOGD/session.log"
 flock -w 900 9 || { board "$ARM $ROUND NOT STARTED: /tmp/aien-gb10.lock busy 900 s"; exit 3; }
 SECONDS=0
 board "START $ARM $ROUND gpu lock held (<=60 min; test port $PORT; live 18091 untouched)"
+echo "kthread_psr_start $(ktpsr)" >> "$LOGD/session.log"
 nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv > "$LOGD/gpu-before.csv" 2>&1
 BASE=$(memavail); echo "baseline_memavail_kB $BASE" > "$LOGD/mem-baseline.txt"
 sampler > "$LOGD/mem.tsv" & SAMP=$!
+vmstat -t 1 > "$LOGD/vmstat.txt" & VMS=$!
 T0=$(date +%s.%N)
 start_server
 ( sleep 3300; board "T-5 $ARM $ROUND: gpu lock released by 60 min" ; sleep 300; \
   touch "$LOGD/TIMEOUT"; board "$ARM $ROUND hit 60 min; harness stops its server"; stop_server ) & WD=$!
 if ready; then
   echo "load_seconds $(echo "$(date +%s.%N) - $T0" | bc)" >> "$LOGD/session.log"
-  [ "$ARM" = LLAMA ] && LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR "$LLAMA_DIR/llama-server" --version > "$LOGD/version.txt" 2>&1
+  case $ARM in LLAMA*) LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR "$LLAMA_DIR/llama-server" --version > "$LOGD/version.txt" 2>&1 ;; esac
   [ "$ARM" = VLLM ] && docker exec h2h-vllm python3 -c "import vllm;print(vllm.__version__)" > "$LOGD/version.txt" 2>&1
   for c in 1 4 8 16; do
     [ -e "$LOGD/TIMEOUT" ] && break
@@ -135,8 +170,9 @@ fi
 stop_server
 kill $WD 2>/dev/null; pkill -P $WD 2>/dev/null
 sleep 5
-kill $SAMP 2>/dev/null
+kill $SAMP $VMS 2>/dev/null
 nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv > "$LOGD/gpu-after.csv" 2>&1
 AFTER=$(memavail); echo "after_memavail_kB $AFTER" >> "$LOGD/mem-baseline.txt"
+echo "kthread_psr_end $(ktpsr)" >> "$LOGD/session.log"
 board "END $ARM $ROUND gpu lock released after $SECONDS s; memavail base=${BASE}kB after=${AFTER}kB"
 flock -u 9
