@@ -98,3 +98,12 @@ The existing `ggml-omega/tests/e2e-gb10.sh` requires an exclusive model window
 with the resident model stopped. That test remains NOT_RUN while the shared
 service is retained. Operator-only tests performed beside that service cannot
 replace this gate. This amendment grants no permission to stop the service.
+
+The archived Q35 launcher named a CUDA-runtime directory that does not exist.
+The resumed launcher uses the actual extracted companion release directory,
+`h2h/dl/llama-bin/cudart-llama-b11913-bin-ubuntu-cuda-13.4-arm64`.
+Its release archive SHA-256 is
+`f6a5a0236082be3a10e9418a47ba389d23097c1fe8926581835f22e3cdeb599a`.
+Library maps are retained for every arm. Historical maps show system-library
+paths, so historical and resumed CUDA rows are not treated as identical runtime
+configurations or pooled together.
