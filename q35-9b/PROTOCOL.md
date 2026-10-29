@@ -173,3 +173,31 @@ Local evidence: `handoffs/stack-comparison-20261029/llomega16-full-corpus-receip
 `llomega-correctness-3/`. The independent-reference observations still missing
 for other arms, repeated timing, quiet-window controls and larger-model arms
 remain outstanding.
+
+## Corrected Q8 result, 2026-10-29
+
+The `--no-repack` Q8 rerun completed all sixteen requests and passed the
+unchanged three-operation placement gate. MUL_MAT, RMS_NORM and SWIGLU all have
+nonzero GPU execution counts. The after-inference library snapshot passed, the
+window exited successfully, and the original shared model was restored healthy.
+Thus the two full-server defects and the Q8 placement configuration error have
+executed follow-up evidence; they are not merely proposed repairs.
+
+Against the frozen independent reference, corrected Q8 has one identical
+sequence, nine exact previously observed first-divergence tuples and six tuples
+without accepted observations. The BF16 result remains three identical and
+thirteen previously observed tuples. Prior observations alone do not establish
+whole-sequence equivalence or semantic correctness.
+
+The combined pending list in `results/PENDING-REFERENCE-20261029.json` contains
+thirteen distinct contexts across all resumed arms, with identical contexts
+deduplicated while preserving the affected arms. Every saved prefix and oracle
+token was checked against the hashed HF reference. No fresh independent score
+is inferred. The existing checker requires Python, which the current operating
+instructions forbid. This gate, the repeated timing campaign, larger-model
+comparisons and final performance report remain incomplete.
+
+Completed Q8 evidence is in `results/LLOMEGA8-CORPUS-20261029.json`; the local raw
+rows, post-inference maps, operation profile and token audit remain under
+`handoffs/stack-comparison-20261029/`. This correctness run is not a timed cell,
+and no speed winner is claimed.
