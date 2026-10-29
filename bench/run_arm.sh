@@ -283,6 +283,27 @@ cleanup_session() {
     timeout 5 nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv > "$LOGD/gpu-after.csv" 2>&1 || rc=1
     AFTER=$(memavail)
     echo "after_memavail_kB $AFTER" >> "$LOGD/mem-baseline.txt"
+    # Recording the inventory alone does not prove that the model unloaded.
+    local remaining_gpu
+    if ! remaining_gpu=$(timeout 5 nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits); then
+      echo "FAIL GPU inventory unavailable after unload" >> "$LOGD/unload-status.txt"
+      rc=1
+    elif [ -n "$remaining_gpu" ]; then
+      echo "FAIL GPU processes remain after unload" >> "$LOGD/unload-status.txt"
+      rc=1
+    else
+      echo "PASS no GPU compute processes remain" >> "$LOGD/unload-status.txt"
+    fi
+    # /proc/meminfo reports KiB. Refuse missing/malformed/overflow-sized samples.
+    if [[ ! "$BASE" =~ ^[0-9]{1,12}$ || ! "$AFTER" =~ ^[0-9]{1,12}$ ]]; then
+      echo "FAIL unavailable or invalid memory baseline/sample" >> "$LOGD/unload-status.txt"
+      rc=1
+    elif (( 10#$BASE == 0 || 10#$AFTER == 0 || 10#$BASE - 10#$AFTER > 2 * 1024 * 1024 )); then
+      echo "FAIL memory did not recover within 2 GiB of baseline" >> "$LOGD/unload-status.txt"
+      rc=1
+    else
+      echo "PASS memory recovered within 2 GiB of baseline" >> "$LOGD/unload-status.txt"
+    fi
     echo "kthread_psr_end $(ktpsr)" >> "$LOGD/session.log"
     board "END $ARM $ROUND own session stopped at $SECONDS s; memavail base=${BASE}kB after=${AFTER}kB; exit=$rc"
     if [ "$GPU_LOCK_RELEASE" = 1 ]; then flock -u 9 || rc=1; fi

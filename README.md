@@ -40,6 +40,7 @@ Before a resumed 35B run, check the external instruments with:
 ```sh
 python3 bench/test-run-arm.py
 python3 bench/test-run-arm-lifecycle.py
+python3 bench/test-unload-gates.py
 python3 bench/test-shared-model-guard.py
 python3 bench/test-bench-python.py
 python3 bench/test-extract-admission.py
@@ -57,6 +58,14 @@ controller must record intent and undo before stopping, hold the GPU lock and re
 shared setup afterward. The complete controller/restoration integration remains unfinished.
 Guard controls use fixtures and harmless child processes; they never access the shared model,
 its port or GPU inventory.
+
+Session cleanup now enforces the protocol's unload gate: no GPU compute processes remain and
+available memory is no more than 2 GiB below its pre-launch baseline. Missing or malformed
+memory readings and failed GPU queries also fail the session and remove its DONE marker.
+`unload-status.txt` records both checks; more available memory is acceptable. The check observes
+memory after process cleanup without flushing caches or killing unrelated processes. A failure
+requires investigation before another arm starts. Fixture tests exercise the actual cleanup
+function; real-model unload and shared-service restoration still require hardware evidence.
 
 ## License
 

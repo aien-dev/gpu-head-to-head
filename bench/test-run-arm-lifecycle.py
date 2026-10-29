@@ -179,7 +179,7 @@ LOGD=%s
 SPID= CPID= CMON_PID= WD= SAMP= VMS= BASE=100 GPU_LOCK_HELD=1 GPU_LOCK_RELEASE=%d
 ARM=CONTROL ROUND=R0
 timeout() { shift; "$@"; }
-nvidia-smi() { echo fixture-no-gpu-access; }
+nvidia-smi() { case "$*" in *noheader*) : ;; *) echo fixture-empty-inventory-header ;; esac; }
 memavail() { echo 100; }
 ktpsr() { echo 99; }
 board() { :; }
