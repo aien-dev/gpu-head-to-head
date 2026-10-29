@@ -136,3 +136,40 @@ attempt refused to stop it while another worker had requests in progress. No
 comparison cell is accepted from that refusal, and no active request was stopped.
 The independent reference observations, repeated timing, quiet-window evidence,
 larger-model arms and final comparison report remain incomplete.
+
+## Full-server observations, 2026-10-29
+
+The resumed full-server attempt exposed two defects that the bounded model
+driver did not cover. Private CUDApp SHA helpers could resolve to incompatible
+`libmtmd` symbols; an export map now keeps all backend definitions private except
+`ggml_backend_init`. Empty graph nodes could also reach a chip routine requiring
+nonempty input; the GPU executor now skips them, matching the CPU executor.
+The original failures, debugger trace and failing empty-graph reproduction are
+preserved. Export isolation and empty-graph regression controls pass on the
+fixed backend, source `9b1d3d5` (local branch).
+
+With those fixes, LLOMEGA16 completed every original chat-corpus request without
+request errors. All three intended GPU operations executed, and the
+after-inference library snapshot passed. Responses differ from the resumed
+stock BF16 baseline on d04, d14 and d15. Against the frozen independent HF
+reference, three sequences are identical and thirteen first-divergence tuples
+have exact previously recorded observations. These observations do not establish
+full numerical equivalence or excuse later differences. No final accuracy or
+timing verdict follows from this run.
+
+The first full LLOMEGA8 run completed its requests but failed the unchanged
+placement gate: MUL_MAT was absent from its GPU profile. It remains a failed
+placement experiment. Source inspection found llama.cpp's CPU-only repacked
+weight buffers incompatible with this backend's host-buffer interface. The
+historical Omega launcher used `-nr`; the resumed command had omitted it. The
+corrected Q8 run uses stock `--no-repack`, the identical GGUF and the same staged
+backend. Its placement and output remain unverified until the run completes.
+This is a recorded configuration correction; results are not pooled across the
+two configurations.
+
+Local evidence: `handoffs/stack-comparison-20261029/llomega16-full-corpus-receipt.json`,
+`llomega16-token-audit.json`, `llomega8-token-audit.json`,
+`startup-collision-fix.json`, `q8-placement-diagnosis.json` and
+`llomega-correctness-3/`. The independent-reference observations still missing
+for other arms, repeated timing, quiet-window controls and larger-model arms
+remain outstanding.
