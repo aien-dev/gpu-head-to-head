@@ -107,3 +107,32 @@ Its release archive SHA-256 is
 Library maps are retained for every arm. Historical maps show system-library
 paths, so historical and resumed CUDA rows are not treated as identical runtime
 configurations or pooled together.
+
+## Authorized model-window follow-up, 2026-10-29
+
+Drake explicitly authorized stopping the shared model unless it is doing a test.
+The saved operating rule now requires checking live activity and the shared
+board before stopping it, then restoring the original setup after testing.
+Exclusive windows performed under that instruction have now exercised the
+mixed backend's fixed-prompt model check. Qwen3.5-9B BF16 and Q8 each matched
+the CPU reference over all 16 generated tokens. Nonzero MUL_MAT, RMS_NORM and
+SWIGLU calls prove actual placement; post-inference process maps contained none
+of the forbidden NVIDIA user-space libraries. The checkpoint files are the same
+ones verified above. Full chat-corpus agreement and timing remain separate gates.
+
+The backend test driver and comparator were hardened after controls reproduced
+false success for empty output and a changed greedy token. The driver now
+preserves comparator failure, requires all three executed operations and checks
+an after-inference library snapshot. Twenty-one comparator controls and eight
+host-only driver controls passed. Backend test-source commit:
+`f4d4014` in `aien-dev/ggml-omega`, local experimental branch at this checkpoint.
+Its committed `evidence/gb10-model-20261029.json` binds the model results to the
+backend, CUDApp, llama.cpp and test-source hashes and records the numerical
+differences. Greedy agreement is not full numerical equality.
+
+The original shared model was restored after both completed windows, with the
+same binary, model, configuration and healthy endpoint. A subsequent full-corpus
+attempt refused to stop it while another worker had requests in progress. No
+comparison cell is accepted from that refusal, and no active request was stopped.
+The independent reference observations, repeated timing, quiet-window evidence,
+larger-model arms and final comparison report remain incomplete.
