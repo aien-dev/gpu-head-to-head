@@ -39,12 +39,13 @@ Before a resumed 35B run, check the external instruments with:
 
 ```sh
 python3 bench/test-run-arm.py
+python3 bench/test-run-arm-lifecycle.py
 python3 bench/test-bench-python.py
 python3 bench/test-extract-admission.py
 bash -n bench/run_arm.sh
 ```
 
-Protocol amendment A6 describes per-cell admission records, failed-stream detection and refusal to
+Protocol amendments A6 and A7 describe owned-process cleanup, per-cell admission records, failed-stream detection and refusal to
 overwrite previous evidence. Passing these CPU-only controls does not qualify a model or complete
 the GPU benchmark. Historical rows without an admission ledger retain their original limitations.
 

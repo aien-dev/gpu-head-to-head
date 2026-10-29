@@ -315,3 +315,39 @@ CPU-only controls: `python3 bench/test-run-arm.py`, `python3 bench/test-bench-py
 This fixes acceptance/reporting defects only. The runner's shared-model coordination, lifecycle,
 current source/weight verification and resumed 35B execution still require qualification before
 use. The active 9B campaign uses frozen instruments recorded in its own manifest and is unchanged.
+
+
+### A7 (2026-10-29, before resumed 35B timing): owned-process lifecycle
+
+The external runner now sources `bench/session-lifecycle.sh`. It tracks child process identities
+using Linux `/proc/<pid>/stat` starttime, rechecks identity before signaling, snapshots descendants,
+waits for children, and refuses untracked or stale live process identities. It no longer searches
+process command lines to decide which server to stop or count for memory. Native server identity
+is published to the sampler because a sampler started before launch cannot see later shell-variable
+updates; container memory sampling includes the owned container root and descendants.
+
+Each container has a unique session name and `aien.stack-comparison.run` ownership label. Creation
+completes before `docker start --attach`; missing images are refused with `--pull never`. Shutdown
+checks the label before stopping a container. The historical shared container names are unused.
+
+EXIT, INT and TERM enter one cleanup path for the client, monitor, server, watchdog and samplers.
+The client runs as a tracked child so the parent can interrupt its wait. The watchdog warns at
+55 minutes from GPU-lock acquisition and ends request execution at 59 minutes, reserving the last
+minute of the original 60-minute limit for cleanup. Cleanup gives process waits a shared 30-second
+budget, bounds container stop and GPU inventory commands, and removes DONE on failure. These are
+host-exercised controls; an actual model/session and unload-baseline qualification remain required.
+
+Before model launch, the GPU inventory must be empty. The runner itself never stops the shared
+18091 model; the authorized exclusive-window controller must check activity, stop it only when
+idle, and restore its exact configuration afterward. `H2H_GPU_LOCK_FD=9` permits that controller
+to lend the already-open GPU-lock descriptor. The runner checks its path and acquires it
+nonblockingly; cleanup preserves a borrowed lock so the controller can retain exclusivity through
+restoration. A standalone runner releases only its own lock.
+
+CPU-only controls: `python3 bench/test-run-arm-lifecycle.py`, plus the A6 controls. Tests cover
+foreign container refusal, labeled owned launch, create failure, normal/failing/interrupted exits,
+watchdog interruption, stale/untracked process refusal, descendant shutdown, termination-resistant
+children, sampler identity and parent-versus-child lock ownership. No GPU, real model or real
+container is used by these controls. The active frozen 9B campaign is unchanged. Source and runtime
+pins, the shared-service controller, unload/memory evidence and full 35B execution remain separate
+requirements before this runner is used for the larger-model comparison.

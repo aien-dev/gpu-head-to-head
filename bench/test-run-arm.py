@@ -23,7 +23,7 @@ class CellGateTests(unittest.TestCase):
             summary_row = {'summary': True, 'elapsed_ticks': elapsed, 'offenders':
                            [{'pid': 42, 'cpu': 5, 'ticks': 99}] if offenders else []}
             monitor_text = json.dumps(summary_row) + '\n' if summary else ''
-            prefix = '''set -u
+            prefix = 'source %s\n' % shlex.quote(str(HERE / 'session-lifecycle.sh')) + '''set -u
 ROOT=%s
 LOGD=$ROOT REPO=$ROOT RESULTS=$ROOT OUT=$ROOT/rows.jsonl
 ARM=CONTROL ROUND=R0 PORT=1 MID=fixture
