@@ -1,0 +1,45 @@
+{
+ "CUDA_CACHE_DISABLE": "1",
+ "arm_core": 9,
+ "build_txt": "cudapp_pin cc0908bdc0a0377f2166e9328dcf1d985457e27f\ngcc 13.3.0\nsha256 cs_cudapp ba4496b361a6f53ec65ccec1b8c999509e392bce7f439d2e4d1e86aa4d7d31cd\nsha256 cs_nvrtc 878bc185cd7a28f52d33253f217efd4a1773cdd1c5bf92669ed0168195e8f14e\nsha256 cs_ptxc 27ae182fe36dda55813ba96f89b7f416505010c2bb3d40805fc263d17c3a28e4\nsha256 cudapp/build/hello_gpu af5e9f6640445cb4d02a857c63ca568f4da48d6c15212dab98631ad9ea6ce3aa\nsha256 cudapp/build/libomega_gpu.a 3c626939a7f599d929d30bc8c9f9f37e08a6bc02bdcd9755c98504bda9e06724\nsha256 vecadd.ptx 9abb51a8a751ec3e2483ba7a57effbe6a387f282f5ffa1bf4a485048e66669a2\nversions {\"arm\":\"NVRTC\",\"cuDriverGetVersion\":13000,\"nvrtcVersion\":\"13.0\"}\nversions {\"arm\":\"PTXC\",\"cuDriverGetVersion\":13000,\"nvPTXCompilerGetVersion\":\"13.0\"}\n",
+ "code_sha256": {
+  "CUDAPP": "9e28bd9c46f80584d77238a752e99cecddbc8d622ffbe320885ed2f499e1f075",
+  "NVRTC": "691edc87423da8a86c5403d332bb980aa20f8808c84a0ffbf79481081c7dd6e8",
+  "PTXC": "691edc87423da8a86c5403d332bb980aa20f8808c84a0ffbf79481081c7dd6e8"
+ },
+ "complete": true,
+ "control_failures": [],
+ "driver_core": 12,
+ "dry_run": false,
+ "finished_utc": "2026-10-29T22:19:46Z",
+ "gap_s": 1.0,
+ "gpu_apps_after": {
+  "apps": [],
+  "rc": 0
+ },
+ "gpu_apps_before": {
+  "apps": [],
+  "rc": 0
+ },
+ "measured_processes": 90,
+ "nvidia_modeset_kthread_cpus": {
+  "1670:nvidia-modeset/kthread_q": 4,
+  "1671:nvidia-modeset/deferred_close_kthread_q": 4
+ },
+ "out_fnv": {
+  "CUDAPP": "e8aa66742b796a3d",
+  "NVRTC": "e8aa66742b796a3d",
+  "PTXC": "e8aa66742b796a3d"
+ },
+ "quiet": {
+  "out": "{\"quiet\": true, \"load1\": 1.2, \"window_s\": 60, \"clk_tck\": 100, \"busy\": [], \"omp_harness\": [{\"pid\": 1197932, \"ticks\": 0}, {\"pid\": 3531577, \"ticks\": 325}], \"utc\": \"2026-10-29T22:17:03Z\"}",
+  "rc": 0
+ },
+ "rounds": 30,
+ "spark_window": "20261029T221538Z-ed5493",
+ "started_utc": "2026-10-29T22:16:03Z",
+ "uname": "Linux spark-b87b 7.0.0-1019-nvidia #19~24.04.2-Ubuntu SMP PREEMPT_DYNAMIC Sun Sep  6 18:35:11 UTC 2 aarch64",
+ "verdict": "MEASURED",
+ "warm_rounds": 10,
+ "warmup": 2
+}
