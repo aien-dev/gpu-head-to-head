@@ -67,3 +67,34 @@ For OURS* and LLOMEGA*, the shared objects the running server mapped are capture
 
 ## Not claimed
 - One machine, one model, single-stream generation. Not batch serving. Any cell not run is NOT_RUN.
+
+## Resumption amendment, 2026-10-29 (before any new timed run)
+
+The resumed campaign uses `bench/bench-node.mjs` on Node v24.21.0 as a
+verification-only measurement instrument. Python is not executed. It preserves
+the request fields, prompt rotation, warm-up selection, nonce prefix, streaming
+content/reasoning handling and busy-response retry policy of `bench.py`.
+Synthetic HTTP controls live in `bench/test-bench-node.mjs`; they exercise
+fragmented UTF-8/SSE, request shape, retries, failed/truncated responses, missing
+usage, concurrent requests, warm-ups and refusal to overwrite an existing output.
+
+The instrument records monotonic nanoseconds as decimal strings (`t_send_ns`,
+`t_first_ns`, `t_last_ns`). It calculates no rates or statistics. Wolfram converts
+those raw timestamps and applies the metric definitions above; queries and
+results accompany the report. The default request timeout is the same as the
+original client: Wolfram query
+`UnitConvert[Quantity[1800, "Seconds"], "Milliseconds"]` returned
+`Quantity[1800000, "Milliseconds"]`.
+
+Unlike the old client, malformed events, missing token usage and streams ending
+without `[DONE]` fail the request and make the client exit unsuccessfully.
+Failed rows are retained. Files from different client implementations are not
+pooled into one timing summary. The recovered R1 remains historical evidence;
+the resumed client needs its own complete repeated campaign before a headline
+comparison. No new timed run has been accepted under this amendment.
+
+Backend operator checks are a separate qualification level from model output.
+The existing `ggml-omega/tests/e2e-gb10.sh` requires an exclusive model window
+with the resident model stopped. That test remains NOT_RUN while the shared
+service is retained. Operator-only tests performed beside that service cannot
+replace this gate. This amendment grants no permission to stop the service.
