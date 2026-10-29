@@ -40,6 +40,7 @@ Before a resumed 35B run, check the external instruments with:
 ```sh
 python3 bench/test-run-arm.py
 python3 bench/test-run-arm-lifecycle.py
+python3 bench/test-shared-model-guard.py
 python3 bench/test-bench-python.py
 python3 bench/test-extract-admission.py
 bash -n bench/run_arm.sh
@@ -48,6 +49,14 @@ bash -n bench/run_arm.sh
 Protocol amendments A6 and A7 describe owned-process cleanup, per-cell admission records, failed-stream detection and refusal to
 overwrite previous evidence. Passing these CPU-only controls does not qualify a model or complete
 the GPU benchmark. Historical rows without an admission ledger retain their original limitations.
+
+The separate `shared-model-guard.py` checks the saved executable, arguments, working directory,
+required environment, idle health, connections, GPU inventory and the coordinator-reviewed BOARD
+checksum. Its stop mode signals a bound Linux process handle and refuses an exited handle. The
+controller must record intent and undo before stopping, hold the GPU lock and restore the same
+shared setup afterward. The complete controller/restoration integration remains unfinished.
+Guard controls use fixtures and harmless child processes; they never access the shared model,
+its port or GPU inventory.
 
 ## License
 
