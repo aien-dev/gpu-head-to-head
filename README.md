@@ -33,6 +33,21 @@ the CUDApp cutover; the CUDApp pin records the GPU-stack state at the time of th
 Omega replacement: none yet; an Omega HTTP/SSE client is the replacement path once the Omega
 standard library has sockets and threads.
 
+## Measurement controls
+
+Before a resumed 35B run, check the external instruments with:
+
+```sh
+python3 bench/test-run-arm.py
+python3 bench/test-bench-python.py
+python3 bench/test-extract-admission.py
+bash -n bench/run_arm.sh
+```
+
+Protocol amendment A6 describes per-cell admission records, failed-stream detection and refusal to
+overwrite previous evidence. Passing these CPU-only controls does not qualify a model or complete
+the GPU benchmark. Historical rows without an admission ledger retain their original limitations.
+
 ## License
 
 Apache-2.0 WITH LLVM-exception, see [LICENSE](LICENSE).

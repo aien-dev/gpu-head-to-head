@@ -38,6 +38,7 @@ def one_request(host, port, model, prompt, max_tokens, timeout=1800):
            "usage": None, "finish_reason": None, "error": None, "http_status": None,
            "busy_retries": 0}
     conn = None
+    done = False
     try:
         row["t_send"] = time.monotonic()
         while True:
@@ -67,11 +68,15 @@ def one_request(host, port, model, prompt, max_tokens, timeout=1800):
                 continue
             payload = line[5:].strip()
             if payload == b"[DONE]":
+                done = True
                 break
             try:
                 ev = json.loads(payload)
             except json.JSONDecodeError:
                 row["error"] = "bad json chunk: " + payload[:200].decode(errors="replace")
+                continue
+            if ev.get("error"):
+                row["error"] = "server error event: " + str(ev["error"])[:1000]
                 continue
             now = time.monotonic()
             if ev.get("usage"):
@@ -92,6 +97,13 @@ def one_request(host, port, model, prompt, max_tokens, timeout=1800):
     finally:
         if conn is not None:
             conn.close()
+    if row["error"] is None:
+        if not done:
+            row["error"] = "stream ended without DONE"
+        elif not row["text"] or row["t_first"] is None or row["t_last"] is None:
+            row["error"] = "no content received"
+        elif not row["finish_reason"]:
+            row["error"] = "missing finish reason"
     return row
 
 
@@ -144,12 +156,17 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--cell-run", default="", help="id of this cell invocation (voiding unit, A2)")
     args = ap.parse_args()
+    if args.concurrency < 1 or args.reps < 1 or args.warmup < 0 or args.max_tokens < 1:
+        ap.error("concurrency, reps and max-tokens must be positive; warmup must be nonnegative")
 
     allp = [json.loads(l) for l in open(args.prompts) if l.strip()]
     if args.select:
         want = args.select.split(",")
         byid = {p["id"]: p for p in allp}
         allp = [byid[w] for w in want]
+    if not allp:
+        ap.error("prompt selection is empty")
+    failed = False
     with open(args.out, "a") as f:
         total = args.warmup + args.reps
         for k in range(total):
@@ -168,12 +185,14 @@ def main():
                 f.write(json.dumps(r) + "\n")
                 f.flush()
                 err = r["error"]
+                failed = failed or bool(err)
                 u = r["usage"] or {}
                 print("%s %s %s rep=%d warm=%s c=%d i=%d pt=%s ct=%s err=%s" % (
                     args.arm, args.round, args.metric, rep, warm, r["concurrency"], r["stream_index"],
                     u.get("prompt_tokens"), u.get("completion_tokens"), (err or "")[:120]),
                     file=sys.stderr)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -26,17 +26,28 @@ void = set()
 if os.path.exists(REPO + "/results/voids.jsonl"):
     void = {v["cell_run"] for v in map(json.loads, filter(str.strip, open(REPO + "/results/voids.jsonl")))
             if honoured(v)}
+# New runs are admitted per cell. A missing, duplicate or non-PASS record excludes the cell;
+# untouched historical runs without a ledger retain their original extraction semantics.
+admission = None
+admission_path = REPO + "/results/cell-status.jsonl"
+if os.path.exists(admission_path):
+    admission = {}
+    for line in open(admission_path):
+        entry = json.loads(line)
+        cr = entry["cell_run"]
+        admission[cr] = entry["status"] if cr not in admission else "DUPLICATE"
+
 raw = [json.loads(line) for path in sorted(glob.glob(REPO + "/results/raw/*.jsonl")) for line in open(path)]
 first = {}  # cell without its try suffix -> lowest non-void try number
 for r in raw:
     cr = r.get("cell_run")
-    if cr and cr not in void:
+    if cr and cr not in void and (admission is None or admission.get(cr) == "PASS"):
         cell, _, n = cr.rpartition("-t")
         first[cell] = min(first.get(cell, int(n)), int(n))
 rows = []
 for r in raw:
     cr = r.get("cell_run")
-    if r["warmup"] or r["arm"] == "STUB" or cr in void:
+    if r["warmup"] or r["arm"] == "STUB" or cr in void or (admission is not None and admission.get(cr) != "PASS"):
         continue
     if cr:
         cell, _, n = cr.rpartition("-t")

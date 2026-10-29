@@ -281,3 +281,37 @@ on this one Spark, on the stated date and load.
   line `<UTC ts> HeadToHead: ... FINAL IDLE`, posted even if the campaign ends early or aborts;
   queued chip jobs wait on that anchored line. If HeadToHead is about to stop mid-run it posts
   `HeadToHead: ABORTED, not FINAL IDLE` instead.
+
+
+### A6 (2026-10-29, before resumed 35B timing): external measurement integrity
+
+Drake clarified that Aien architecture and structural implementation stay Python-free, while
+external testing equipment, independent references and calculations may use Python, with Wolfram
+preferred for calculations. These host measurement tools are external equipment; this amendment
+introduces no Python production dependency.
+
+The legacy 35B runner could return success after a failed client, a missing foreign-process
+monitor summary, an exhausted disturbed-cell retry, or a session timeout. Its Python client also
+returned zero after failed HTTP requests and accepted truncated streams. Synthetic regressions
+reproduced these paths before the fixes. New resumed runs use the following controls:
+
+- The client retains failed raw rows, requires content, a finish reason and the SSE DONE marker,
+  and returns nonzero if any request fails. Missing usage remains eligible for the original
+  separately labeled retokenization path; it is not invented by the client.
+- No quiet gate means NOT_RUN. A monitor must exit 0 or 1 and provide exactly one summary with a
+  positive elapsed-tick count; missing or invalid kthread samples also mean NOT_RUN. Named
+  interference keeps the existing VOID rule and three-attempt limit.
+- Every attempted cell records PASS, FAIL, NOT_RUN or VOID in `results/cell-status.jsonl`.
+  When that ledger exists, `bench/extract.py` admits only cell ids with exactly one PASS record.
+  Missing, duplicate or conflicting records exclude a cell. Historical runs without this ledger
+  retain the legacy extraction behavior and are not retrospectively qualified by this fix.
+- DONE requires all fourteen declared cells accepted and no TIMEOUT. An incomplete session returns
+  nonzero and retains its rows and logs. Existing session files are refused rather than overwritten.
+  `H2H_RESULTS` selects a fresh results directory while leaving the frozen instruments and prompts
+  at `H2H_REPO`; for extraction, supply a parent directory containing that `results/` directory.
+
+CPU-only controls: `python3 bench/test-run-arm.py`, `python3 bench/test-bench-python.py`, and
+`python3 bench/test-extract-admission.py`; shell syntax: `bash -n bench/run_arm.sh`.
+This fixes acceptance/reporting defects only. The runner's shared-model coordination, lifecycle,
+current source/weight verification and resumed 35B execution still require qualification before
+use. The active 9B campaign uses frozen instruments recorded in its own manifest and is unchanged.

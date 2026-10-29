@@ -21,9 +21,15 @@ SGLANG_IMG=; MODEL4=; GGUF4=
 BOARD=/home/drakestapleton/handoffs/BOARD.md
 VLLM_UTIL=${VLLM_UTIL:-0.50}
 SGLANG_MEM=${SGLANG_MEM:-0.50}
-OUT=$REPO/results/raw/$ARM-$ROUND.jsonl
-LOGD=$REPO/results/logs/$ARM-$ROUND
+RESULTS=${H2H_RESULTS:-$REPO/results}
+OUT=$RESULTS/raw/$ARM-$ROUND.jsonl
+LOGD=$RESULTS/logs/$ARM-$ROUND
+if [ -e "$OUT" ] || [ -e "$LOGD" ]; then
+  echo "refusing to overwrite an existing session: $LOGD or $OUT" >&2
+  exit 2
+fi
 mkdir -p "$LOGD" "$(dirname "$OUT")"
+touch "$RESULTS/cell-status.jsonl" || exit 2
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 board() { echo "$(ts) HeadToHead: $*" >> "$BOARD"; echo "$(ts) $*" >> "$LOGD/session.log"; }
 notrun() { board "$ARM $ROUND NOT_RUN: $*"; echo "$*" > "$LOGD/NOT_RUN"; exit 4; }
@@ -137,47 +143,89 @@ loopback_only() {  # A5(f): every listener on the test port must be 127.0.0.1, e
   [ -s "$LOGD/listen.txt" ] && ! awk '{print $4}' "$LOGD/listen.txt" | grep -qv '^127\.0\.0\.1:'
 }
 
+cell_status() {
+  python3 -c 'import json,sys; print(json.dumps({"cell_run":sys.argv[1],"status":sys.argv[2]}))' \
+    "$1" "$2" >> "$RESULTS/cell-status.jsonl"
+}
+
 cell() {  # metric concurrency max_tokens promptfile [extra]
   # A2: a cell is VOID and re-run (<=3 tries) when the nvidia-modeset kthread was sampled on a server
   # core, or a process outside HeadToHead used >20% of one server core (bench/coremon.py)
   local metric=$1 c=$2 mt=$3 pf=$4; shift 4
-  local try t0 t1 hit cm cmrc why off
+  local try t0 t1 hit cm cmrc why off clientrc
   mkdir -p "$LOGD/coremon"
   for try in 1 2 3; do
-    [ -e "$LOGD/TIMEOUT" ] && return
-    wait_quiet || { echo "$(ts) cell $metric ran without a quiet window (LOADED)" >> "$LOGD/session.log"; }
     local id="$ARM-$ROUND-$metric-t$try"
+    [ -e "$LOGD/TIMEOUT" ] && { cell_status "$id" NOT_RUN; return 1; }
+    wait_quiet || { echo "$(ts) cell $metric NOT_RUN: no quiet window" >> "$LOGD/session.log"; cell_status "$id" NOT_RUN; return 1; }
     taskset -c $MON_CPU python3 "$REPO/bench/coremon.py" --cpus $SRV_CPUS --exclude-tree $(mytree) \
       --out "$LOGD/coremon/$id.jsonl" & cm=$!
     t0=$(date +%s)
     taskset -c $CLI_CPUS python3 "$REPO/bench/bench.py" --port $PORT --model $MID --arm $ARM --round $ROUND --metric "$metric" \
       --prompts "$REPO/prompts/$pf" --concurrency $c --max-tokens $mt --out "$OUT" --cell-run "$id" "$@" 2>> "$LOGD/client.log"
+    clientrc=$?
     kill -TERM $cm; wait $cm; cmrc=$?
+    if [ "$clientrc" -ne 0 ]; then
+      echo "$(ts) $id FAIL: client exit $clientrc; raw rows retained" >> "$LOGD/session.log"
+      cell_status "$id" FAIL
+      return 1
+    fi
+    if [ "$cmrc" -ne 0 ] && [ "$cmrc" -ne 1 ]; then
+      echo "$(ts) $id foreign-process check NOT_RUN: monitor exit $cmrc" >> "$LOGD/session.log"
+      cell_status "$id" NOT_RUN
+      return 1
+    fi
     sleep 2; t1=$(date +%s)
+    if ! awk -v a=$t0 -v b=$t1 '$1>=a && $1<=b {n++; if ($5 !~ /^[0-9]+$/) bad=1} END{exit (!n || bad)}' "$LOGD/mem.tsv"; then
+      echo "$(ts) $id kthread check NOT_RUN: missing or invalid samples" >> "$LOGD/session.log"
+      cell_status "$id" NOT_RUN
+      return 1
+    fi
     hit=$(awk -v a=$t0 -v b=$t1 -v s="$SRV_LIST" '$1>=a && $1<=b && index(s, " "$5" ") {print $5; exit}' "$LOGD/mem.tsv")
     why=
     [ -n "$hit" ] && why="nvidia-modeset kthread on server core $hit"
     # A4: only a coremon summary that names offenders voids the cell; a monitor that wrote no
     # summary is recorded as "foreign check NOT_RUN" for that cell, never as a void
     off=$(python3 -c 'import json,sys
-s=[json.loads(l) for l in open(sys.argv[1]) if "\"summary\"" in l]
-print(json.dumps(s[-1]["offenders"]) if s else "NOSUMMARY")' "$LOGD/coremon/$id.jsonl" 2>/dev/null || echo NOSUMMARY)
+rows=[json.loads(l) for l in open(sys.argv[1])]
+s=[r for r in rows if r.get("summary") is True]
+if len(s)!=1 or not isinstance(s[0].get("elapsed_ticks"),int) or s[0]["elapsed_ticks"]<=0 or not isinstance(s[0].get("offenders"),list):
+    print("NOSUMMARY")
+else:
+    print(json.dumps(s[0]["offenders"]))' "$LOGD/coremon/$id.jsonl" 2>/dev/null || echo NOSUMMARY)
     case $off in
-      NOSUMMARY) echo "$(ts) $id foreign-process check NOT_RUN: coremon exit $cmrc, no summary" >> "$LOGD/session.log" ;;
-      '[]') ;;
+      NOSUMMARY) echo "$(ts) $id foreign-process check NOT_RUN: coremon exit $cmrc, no summary" >> "$LOGD/session.log"; cell_status "$id" NOT_RUN; return 1 ;;
+      '[]') [ "$cmrc" -eq 0 ] || { echo "$(ts) $id FAIL: monitor exit disagrees with clean summary" >> "$LOGD/session.log"; cell_status "$id" FAIL; return 1; } ;;
       *) why="${why:+$why; }foreign process >20% of a server core: $(echo "$off" | cut -c1-300)" ;;
     esac
-    if [ -z "$why" ]; then return; fi
+    if [ -z "$why" ]; then
+      cell_status "$id" PASS || return 1
+      CELLS_COMPLETED=$((CELLS_COMPLETED + 1))
+      return 0
+    fi
     python3 -c 'import json,sys; print(json.dumps({"cell_run": sys.argv[1], "reason": sys.argv[2], "t0": int(sys.argv[3]), "t1": int(sys.argv[4])}))' \
-      "$id" "$why" $t0 $t1 >> "$REPO/results/voids.jsonl"
+      "$id" "$why" $t0 $t1 >> "$RESULTS/voids.jsonl"
+    cell_status "$id" VOID || return 1
     echo "$(ts) VOID $id: $why" >> "$LOGD/session.log"
   done
+  echo "$(ts) $metric NOT_RUN: all three attempts disturbed" >> "$LOGD/session.log"
+  return 1
+}
+
+mark_complete() {
+  if [ "$CELLS_COMPLETED" -ne 14 ] || [ -e "$LOGD/TIMEOUT" ]; then
+    echo "incomplete: $CELLS_COMPLETED/14 accepted cells; see session.log" > "$LOGD/INCOMPLETE"
+    return 1
+  fi
+  touch "$LOGD/DONE"
 }
 
 # ---- session ----
 # PROTOCOL A2 (Main's gate): start only when no foreign process used >20% CPU for 60 s and load1 < 6,
 # before taking the lock, so the 60-min hold is not spent waiting
 SPID=
+CELLS_COMPLETED=0
+SESSION_RC=1
 case $ARM in
   SGLANG*) [ -n "$SGLANG_IMG" ] || notrun "no SGLang image verified for aarch64/sm_121 (bench/arms.conf)" ;;
 esac
@@ -216,22 +264,26 @@ if ready && loopback_only; then
   [ -n "$CTR" ] && docker exec $CTR pip list 2>/dev/null | grep -i -E '^(vllm|sglang|torch|transformers|flashinfer)' > "$LOGD/version.txt"
   for c in 1 4 8 16; do
     [ -e "$LOGD/TIMEOUT" ] && break
-    cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3
+    cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3 || break
   done
   for p in p256 p2k p8k; do
+    [ "$CELLS_COMPLETED" -ge 4 ] || break
     [ -e "$LOGD/TIMEOUT" ] && break
-    cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce
+    cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce || break
   done
-  [ -e "$LOGD/TIMEOUT" ] || cell agree 1 128 decode.jsonl --warmup 0 --reps 16
+  if [ "$CELLS_COMPLETED" -eq 7 ] && [ ! -e "$LOGD/TIMEOUT" ]; then
+    cell agree 1 128 decode.jsonl --warmup 0 --reps 16 || true
+  fi
   # A3 grid: N = 1, 8, 32 streams x prompt 512 / 8k tokens, 256 new tokens, 1 warmup + 3 runs
   for p in p512 p8k; do
+    [ "$CELLS_COMPLETED" -ge 8 ] || break
     for n in 1 8 32; do
       [ -e "$LOGD/TIMEOUT" ] && break
-      cell grid-$p-n$n $n 256 prefill.jsonl --select $p --warmup 1 --reps 3 --nonce
+      cell grid-$p-n$n $n 256 prefill.jsonl --select $p --warmup 1 --reps 3 --nonce || break 2
     done
   done
   board "$ARM $ROUND cells done at $SECONDS s"
-  touch "$LOGD/DONE"
+  if mark_complete; then SESSION_RC=0; fi
 else
   if [ -s "$LOGD/listen.txt" ]; then why="FAIL: listener on port $PORT is not loopback-only (listen.txt); server stopped"
   else why="server did not become ready (see results/logs/$ARM-$ROUND/server.log)"; fi
@@ -247,3 +299,4 @@ AFTER=$(memavail); echo "after_memavail_kB $AFTER" >> "$LOGD/mem-baseline.txt"
 echo "kthread_psr_end $(ktpsr)" >> "$LOGD/session.log"
 board "END $ARM $ROUND gpu lock released after $SECONDS s; memavail base=${BASE}kB after=${AFTER}kB"
 flock -u 9
+exit "$SESSION_RC"
