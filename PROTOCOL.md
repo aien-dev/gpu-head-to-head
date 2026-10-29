@@ -281,3 +281,13 @@ on this one Spark, on the stated date and load.
   line `<UTC ts> HeadToHead: ... FINAL IDLE`, posted even if the campaign ends early or aborts;
   queued chip jobs wait on that anchored line. If HeadToHead is about to stop mid-run it posts
   `HeadToHead: ABORTED, not FINAL IDLE` instead.
+- **A7 (2026-10-29, cold-start study; numbered A7 because A6 is the llama.cpp methodology amendment
+  d3426b2 on branch `results/2026-10-27-a6`, not yet on main):** a separate study, predeclared in
+  [coldstart/PROTOCOL.md](coldstart/PROTOCOL.md) and committed before its GPU window opens, measures
+  process cold start to first verified result on GB10 for CUDApp's own ioctl path (arm CUDAPP) against
+  NVIDIA's run-time compile paths (arms PTXC and NVRTC), with its harness in `coldstart/` and its results
+  in `results/coldstart/`. It is a chip-level microbenchmark, so section 1 still holds: none of its
+  numbers enters the main results table `results/RESULTS.md`, and none of this protocol's end-to-end
+  numbers is mixed into it. No `HeadToHead: ... FINAL IDLE` line (A5(h)) is on the BOARD as of
+  2026-10-29 22:15Z; the study takes `/tmp/aien-gb10.lock` only inside its own spark-window, under
+  Drake's GPU authorization for this lane given on 2026-10-29.
