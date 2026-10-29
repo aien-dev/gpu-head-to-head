@@ -201,3 +201,48 @@ Completed Q8 evidence is in `results/LLOMEGA8-CORPUS-20261029.json`; the local r
 rows, post-inference maps, operation profile and token audit remain under
 `handoffs/stack-comparison-20261029/`. This correctness run is not a timed cell,
 and no speed winner is claimed.
+
+## Independent reference completion and timing start, 2026-10-29
+
+Drake clarified that external testing/reference/measurement tools may use Python
+while Aien architecture and structural implementation remain Python-free.
+Calculations may also use Python, with Wolfram preferred. This removes the
+earlier reference-tool prohibition; it does not add Python to the tested native
+engine or Omega backend.
+
+The original `tie_check.py`, byte-checked against this repository's pinned copy,
+ran in the pinned NVIDIA image
+`nvcr.io/nvidia/vllm@sha256:557747337846eecf34486866f3d992383c6f8af869fdb0e365b5093fcaee02c2`.
+All thirteen deduplicated pending contexts produced finite observations matching
+the exact prompt, position and token pair. The shared model was restored and
+healthy after exit. The updated five-arm token audit has no first-divergence
+tuple lacking a matching independent observation.
+
+In the thirteen new contexts, seven tested tokens rank equal to the reference's
+top score and six rank second. These are recorded observations, not an invented
+acceptance tolerance. LLAMA8 d08 scores its tested token above the token saved
+in the frozen generation reference; that negative gap is preserved. A
+first-divergence score does not verify later divergent continuation or establish
+whole-model numerical equivalence. Exact agreement remains reported separately.
+
+The resumed timing campaign retains all five arms across three rounds, with
+`random.Random(9)` determining the recorded arm order. Each fresh session reruns
+the agree cell, then uses the original warm-up/repetition counts, prompt sizes
+and nonce setting. Stock CUDA arms additionally run concurrency-eight and the
+llama-bench cross-check. Corrected Omega Q8 retains `--no-repack`; its earlier
+failed placement run remains separate. Each cell has a fresh output file.
+
+Client and prompt copies are frozen for the campaign. `bench-node.mjs` records
+raw monotonic nanoseconds as declared above; the existing external Python quiet
+checker enforces the declared window before cells. Request/library/placement
+failure stops the campaign. A quiet gate that cannot pass after its bounded
+attempts stops the session without accepting a timed cell. The original shared
+model is restored between configurations. Results are not pooled with historical
+clients or runtimes, and no speed conclusion is justified before the required
+cells finish and their observations are analyzed.
+
+New committed reference evidence: `results/REFERENCE-OBSERVATIONS-20261029.jsonl`,
+`results/REFERENCE-RECEIPT-20261029.json`, and
+`results/ALL-ARMS-TOKEN-AUDIT-20261029.json`.
+The live campaign manifest, frozen instruments, order and raw outputs are under
+`handoffs/stack-comparison-20261029/timing-campaign-1/`.
