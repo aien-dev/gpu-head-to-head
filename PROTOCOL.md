@@ -281,9 +281,22 @@ on this one Spark, on the stated date and load.
   line `<UTC ts> HeadToHead: ... FINAL IDLE`, posted even if the campaign ends early or aborts;
   queued chip jobs wait on that anchored line. If HeadToHead is about to stop mid-run it posts
   `HeadToHead: ABORTED, not FINAL IDLE` instead.
+- **A7 (2026-10-29, cold-start study; numbered A7 because A6 is the llama.cpp methodology amendment
+  d3426b2 on branch `results/2026-10-27-a6`, not yet on main):** a separate study, predeclared in
+  [coldstart/PROTOCOL.md](coldstart/PROTOCOL.md) and committed before its GPU window opens, measures
+  process cold start to first verified result on GB10 for CUDApp's own ioctl path (arm CUDAPP) against
+  NVIDIA's run-time compile paths (arms PTXC and NVRTC), with its harness in `coldstart/` and its results
+  in `results/coldstart/`. It is a chip-level microbenchmark, so section 1 still holds: none of its
+  numbers enters the main results table `results/RESULTS.md`, and none of this protocol's end-to-end
+  numbers is mixed into it. No `HeadToHead: ... FINAL IDLE` line (A5(h)) is on the BOARD as of
+  2026-10-29 22:15Z; the study takes `/tmp/aien-gb10.lock` only inside its own spark-window, under
+  Drake's GPU authorization for this lane given on 2026-10-29.
 
 
-### A6 (2026-10-29, before resumed 35B timing): external measurement integrity
+### A8 (2026-10-29, before resumed 35B timing): external measurement integrity
+
+Numbered A8 and A9 because A6 is the llama.cpp methodology amendment on branch
+`results/2026-10-27-a6` and A7 is the cold-start study above.
 
 Drake clarified that Aien architecture and structural implementation stay Python-free, while
 external testing equipment, independent references and calculations may use Python, with Wolfram
@@ -317,14 +330,17 @@ current source/weight verification and resumed 35B execution still require quali
 use. The active 9B campaign uses frozen instruments recorded in its own manifest and is unchanged.
 
 
-### A7 (2026-10-29, before resumed 35B timing): owned-process lifecycle
+### A9 (2026-10-29, before resumed 35B timing): owned-process lifecycle
 
 The external runner now sources `bench/session-lifecycle.sh`. It tracks child process identities
 using Linux `/proc/<pid>/stat` starttime, rechecks identity before signaling, snapshots descendants,
-waits for children, and refuses untracked or stale live process identities. It no longer searches
-process command lines to decide which server to stop or count for memory. Native server identity
-is published to the sampler because a sampler started before launch cannot see later shell-variable
-updates; container memory sampling includes the owned container root and descendants.
+waits for children, and refuses untracked or stale live process identities. A pid whose `/proc`
+entry is already gone was reaped by the shell and is not waited for again: Bash 5.2 `wait` on it
+from the EXIT trap that interrupted the client wait (the watchdog's TERM) blocked forever. It no
+longer searches process command lines to decide which server to stop or count for memory. Native
+server identity is published to the sampler because a sampler started before launch cannot see
+later shell-variable updates; container memory sampling includes the owned container root and
+descendants.
 
 Each container has a unique session name and `aien.stack-comparison.run` ownership label. Creation
 completes before `docker start --attach`; missing images are refused with `--pull never`. Shutdown
@@ -344,7 +360,7 @@ to lend the already-open GPU-lock descriptor. The runner checks its path and acq
 nonblockingly; cleanup preserves a borrowed lock so the controller can retain exclusivity through
 restoration. A standalone runner releases only its own lock.
 
-CPU-only controls: `python3 bench/test-run-arm-lifecycle.py`, plus the A6 controls. Tests cover
+CPU-only controls: `python3 bench/test-run-arm-lifecycle.py`, plus the A8 controls. Tests cover
 foreign container refusal, labeled owned launch, create failure, normal/failing/interrupted exits,
 watchdog interruption, stale/untracked process refusal, descendant shutdown, termination-resistant
 children, sampler identity and parent-versus-child lock ownership. No GPU, real model or real

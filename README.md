@@ -6,6 +6,7 @@ the GPU-stack plan: prove the numbers before claiming them, and publish them eve
 
 - Protocol (predeclared, committed before the first run): [PROTOCOL.md](PROTOCOL.md)
 - Results table: planned at `results/RESULTS.md`, not present in this tree.
+- Cold-start study (separate, chip-level, amendment A7): [coldstart/PROTOCOL.md](coldstart/PROTOCOL.md), results in `results/coldstart/`
 - Raw request rows, server logs, memory samples, versions: [results/](results/)
 - Client and scripts: [bench/](bench/)
 
@@ -48,7 +49,7 @@ python3 bench/test-extract-admission.py
 bash -n bench/run_arm.sh
 ```
 
-Protocol amendments A6 and A7 describe owned-process cleanup, per-cell admission records, failed-stream detection and refusal to
+Protocol amendments A8 and A9 describe owned-process cleanup, per-cell admission records, failed-stream detection and refusal to
 overwrite previous evidence. Passing these CPU-only controls does not qualify a model or complete
 the GPU benchmark. Historical rows without an admission ledger retain their original limitations.
 

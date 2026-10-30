@@ -1,0 +1,36 @@
+1000000000-1000010000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1000010000-1000110000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004110000-1004111000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004111000-1004121000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004121000-1004122000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004122000-1004123000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004123000-1004133000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004133000-1004134000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004134000-1004534000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004534000-1004934000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+1004934000-1004d34000 rw-s 00000000 00:07 1019                           /dev/nvidiactl
+ab76224a0000-ab76225e6000 r-xp 00000000 103:02 1089361                   /tmp/csb/out/cs_cudapp
+ab76225ff000-ab7622600000 r--p 0014f000 103:02 1089361                   /tmp/csb/out/cs_cudapp
+ab7622600000-ab7622601000 rw-p 00150000 103:02 1089361                   /tmp/csb/out/cs_cudapp
+ab7622601000-ab76226d1000 rw-p 00000000 00:00 0 
+ab7637f11000-ab7637f32000 rw-p 00000000 00:00 0                          [heap]
+f739d0800000-f739d1000000 ---p 00000000 00:00 0 
+f739d1000000-f739d1800000 rw-p 00000000 00:00 0 
+f739d19cd000-f739d25d0000 rw-p 00000000 00:00 0 
+f739d25d0000-f739d276a000 r-xp 00000000 103:02 1343058                   /usr/lib/aarch64-linux-gnu/libc.so.6
+f739d276a000-f739d277d000 ---p 0019a000 103:02 1343058                   /usr/lib/aarch64-linux-gnu/libc.so.6
+f739d277d000-f739d2780000 r--p 0019d000 103:02 1343058                   /usr/lib/aarch64-linux-gnu/libc.so.6
+f739d2780000-f739d2782000 rw-p 001a0000 103:02 1343058                   /usr/lib/aarch64-linux-gnu/libc.so.6
+f739d2782000-f739d278e000 rw-p 00000000 00:00 0 
+f739d2790000-f739d2815000 r-xp 00000000 103:02 1343061                   /usr/lib/aarch64-linux-gnu/libm.so.6
+f739d2815000-f739d282f000 ---p 00085000 103:02 1343061                   /usr/lib/aarch64-linux-gnu/libm.so.6
+f739d282f000-f739d2830000 r--p 0008f000 103:02 1343061                   /usr/lib/aarch64-linux-gnu/libm.so.6
+f739d2830000-f739d2831000 rw-p 00090000 103:02 1343061                   /usr/lib/aarch64-linux-gnu/libm.so.6
+f739d2845000-f739d2855000 rw-s 00000000 00:07 1020                       /dev/nvidia0
+f739d2855000-f739d287c000 r-xp 00000000 103:02 1343055                   /usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+f739d2889000-f739d288d000 rw-p 00000000 00:00 0 
+f739d288d000-f739d2891000 r--p 00000000 00:00 0                          [vvar]
+f739d2891000-f739d2893000 r-xp 00000000 00:00 0                          [vdso]
+f739d2893000-f739d2895000 r--p 0002e000 103:02 1343055                   /usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+f739d2895000-f739d2897000 rw-p 00030000 103:02 1343055                   /usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+ffffdfb8b000-ffffdfbad000 rw-p 00000000 00:00 0                          [stack]

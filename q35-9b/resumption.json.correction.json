@@ -1,0 +1,25 @@
+{
+  "target": "resumption.json",
+  "target_sha256": "cfedf8b68703bd3259f29cd5af40b31c4bc3cf3b47ee958a34b6f00572acce9f",
+  "status": "HISTORICAL_INITIAL_CHECKPOINT_SUPERSEDED_FOR_CURRENT_STATUS",
+  "corrections": [
+    "The shared model may be stopped outside active tests under the current explicit authorization and restored unchanged",
+    "Named text-tensor layout checks, corrected BF16/Q8 full-server corpora and independent first-divergence observations have been exercised at the pins recorded in subsequent protocol sections",
+    "Resumed repeated timing is running; whole-model equivalence and a final performance comparison remain unverified"
+  ],
+  "evidence": [
+    "PROTOCOL.md",
+    "ORDERED-WEIGHTS.md",
+    "results/WEIGHTS.md.ordered-verification.json",
+    "results/REFERENCE-RECEIPT-20261029.json",
+    "results/ALL-ARMS-TOKEN-AUDIT-20261029.json"
+  ],
+  "remaining": [
+    "Complete all declared rounds and cells",
+    "Validate placement breakdown and decode time shares",
+    "Complete larger-model comparison and actual shared-service restoration qualification",
+    "Publish full source-bound statistics with limits",
+    "Qualify native Intel CPU and investigate available GPU"
+  ],
+  "publication_limit": "Resumption amendments published after the resumed timing campaign began; do not claim prospective remote registration"
+}

@@ -1,0 +1,120 @@
+200000000-200200000 ---p 00000000 00:00 0 
+200200000-200400000 rw-s 00000000 00:01 17039                            /dev/zero (deleted)
+200400000-200800000 rw-s 00000000 00:01 17040                            /dev/zero (deleted)
+200800000-200a00000 rw-s 00000000 00:07 1019                             /dev/nvidiactl
+200a00000-201a00000 ---p 00000000 00:00 0 
+201a00000-201c00000 rw-s 00000000 00:07 1019                             /dev/nvidiactl
+201c00000-202000000 rw-s 00000000 00:01 17041                            /dev/zero (deleted)
+202000000-202400000 rw-s 00000000 00:01 17042                            /dev/zero (deleted)
+202400000-202800000 rw-s 00000000 00:01 17043                            /dev/zero (deleted)
+202800000-202c00000 rw-s 00000000 00:01 17044                            /dev/zero (deleted)
+202c00000-203000000 rw-s 00000000 00:01 17045                            /dev/zero (deleted)
+203000000-203400000 rw-s 00000000 00:01 17046                            /dev/zero (deleted)
+203400000-203800000 rw-s 00000000 00:01 17047                            /dev/zero (deleted)
+203800000-203a00000 rw-s 00000000 00:01 17048                            /dev/zero (deleted)
+203a00000-203c00000 rw-s 00000000 00:01 17049                            /dev/zero (deleted)
+203c00000-203e00000 rw-s 203c00000 00:07 1021                            /dev/nvidia-uvm
+203e00000-300200000 ---p 00000000 00:00 0 
+320000000-324600000 ---p 00000000 00:00 0 
+324600000-324700000 rw-s 00000000 00:01 17050                            /dev/zero (deleted)
+324700000-324800000 ---p 00000000 00:00 0 
+324800000-324900000 rw-s 00000000 00:01 17051                            /dev/zero (deleted)
+324900000-324a00000 ---p 00000000 00:00 0 
+324a00000-324b00000 rw-s 00000000 00:01 17052                            /dev/zero (deleted)
+324b00000-324c00000 ---p 00000000 00:00 0 
+324c00000-324d00000 rw-s 00000000 00:01 17053                            /dev/zero (deleted)
+324d00000-324e00000 ---p 00000000 00:00 0 
+324e00000-324e10000 rw-s 00000000 00:01 17054                            /dev/zero (deleted)
+324e10000-325400000 ---p 00000000 00:00 0 
+325400000-325600000 rw-s 00000000 00:07 1019                             /dev/nvidiactl
+325600000-325800000 rw-s 00000000 00:07 1019                             /dev/nvidiactl
+325800000-325a00000 rw-s 00000000 00:07 1019                             /dev/nvidiactl
+325a00000-325c00000 rw-s 00000000 00:07 1019                             /dev/nvidiactl
+325c00000-325c10000 rw-s 00000000 00:01 17056                            /dev/zero (deleted)
+325c10000-325e00000 ---p 00000000 00:00 0 
+325e00000-3263ec000 rw-s 00000000 00:07 1019                             /dev/nvidiactl
+3263ec000-340000000 ---p 00000000 00:00 0 
+c6300ba20000-c6300ba24000 r-xp 00000000 103:02 1089212                   /tmp/csb/out/cs_nvrtc
+c6300ba3f000-c6300ba40000 r--p 0000f000 103:02 1089212                   /tmp/csb/out/cs_nvrtc
+c6300ba40000-c6300ba41000 rw-p 00010000 103:02 1089212                   /tmp/csb/out/cs_nvrtc
+c6303211f000-c63034250000 rw-p 00000000 00:00 0                          [heap]
+f71990000000-f71990021000 rw-p 00000000 00:00 0 
+f71990021000-f71994000000 ---p 00000000 00:00 0 
+f71994a0e000-f71994dfe000 rw-p 00000000 00:00 0 
+f719951e9000-f719951ea000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951ea000-f719951eb000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951eb000-f719951ec000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951ec000-f719951ed000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951ed000-f719951ee000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951ee000-f719951ef000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951ef000-f719951f0000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951f0000-f719951f1000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951f1000-f719951f2000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951f2000-f719951f3000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951f3000-f719951f4000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951f4000-f719951f5000 rw-s 00000000 00:07 1019                       /dev/nvidiactl
+f719951f5000-f7199640a000 ---p 00000000 00:00 0 
+f7199640a000-f7199641a000 ---p 00000000 00:00 0 
+f7199641a000-f71996c1a000 rw-p 00000000 00:00 0 
+f71996ddf000-f71b9c000000 ---p 00000000 00:00 0 
+f71b9c000000-f71b9c021000 rw-p 00000000 00:00 0 
+f71b9c021000-f71ba0000000 ---p 00000000 00:00 0 
+f71ba006d000-f71ba007d000 rw-s 00000000 00:01 17055                      /dev/zero (deleted)
+f71ba007d000-f71ba0310000 rw-p 00000000 00:00 0 
+f71ba0310000-f71ba0320000 -w-s 00000000 00:07 1020                       /dev/nvidia0
+f71ba0320000-f71ba0330000 ---p 00000000 00:00 0 
+f71ba0330000-f71ba0b30000 rw-p 00000000 00:00 0 
+f71ba0b30000-f71ba0b4f000 r-xp 00000000 103:02 1332493                   /usr/lib/aarch64-linux-gnu/libgcc_s.so.1
+f71ba0b4f000-f71ba0b5f000 ---p 0001f000 103:02 1332493                   /usr/lib/aarch64-linux-gnu/libgcc_s.so.1
+f71ba0b5f000-f71ba0b60000 r--p 0001f000 103:02 1332493                   /usr/lib/aarch64-linux-gnu/libgcc_s.so.1
+f71ba0b60000-f71ba0b61000 rw-p 00020000 103:02 1332493                   /usr/lib/aarch64-linux-gnu/libgcc_s.so.1
+f71ba0b70000-f71ba0ddd000 r-xp 00000000 103:02 1349537                   /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33
+f71ba0ddd000-f71ba0de5000 ---p 0026d000 103:02 1349537                   /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33
+f71ba0de5000-f71ba0df0000 r--p 00275000 103:02 1349537                   /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33
+f71ba0df0000-f71ba0df3000 rw-p 00280000 103:02 1349537                   /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33
+f71ba0df3000-f71ba0df7000 rw-p 00000000 00:00 0 
+f71ba0e00000-f71ba122d000 r-xp 00000000 103:02 1615317                   /usr/local/cuda-13.0/targets/sbsa-linux/lib/libnvrtc-builtins.so.13.0.88
+f71ba122d000-f71ba123c000 ---p 0042d000 103:02 1615317                   /usr/local/cuda-13.0/targets/sbsa-linux/lib/libnvrtc-builtins.so.13.0.88
+f71ba123c000-f71ba123d000 r--p 0042c000 103:02 1615317                   /usr/local/cuda-13.0/targets/sbsa-linux/lib/libnvrtc-builtins.so.13.0.88
+f71ba123d000-f71ba123e000 rw-p 0042d000 103:02 1615317                   /usr/local/cuda-13.0/targets/sbsa-linux/lib/libnvrtc-builtins.so.13.0.88
+f71ba124c000-f71ba2250000 rw-p 00000000 00:00 0 
+f71ba2250000-f71ba22d5000 r-xp 00000000 103:02 1343061                   /usr/lib/aarch64-linux-gnu/libm.so.6
+f71ba22d5000-f71ba22ef000 ---p 00085000 103:02 1343061                   /usr/lib/aarch64-linux-gnu/libm.so.6
+f71ba22ef000-f71ba22f0000 r--p 0008f000 103:02 1343061                   /usr/lib/aarch64-linux-gnu/libm.so.6
+f71ba22f0000-f71ba22f1000 rw-p 00090000 103:02 1343061                   /usr/lib/aarch64-linux-gnu/libm.so.6
+f71ba2300000-f71ba2301000 r-xp 00000000 103:02 1343060                   /usr/lib/aarch64-linux-gnu/libdl.so.2
+f71ba2301000-f71ba231f000 ---p 00001000 103:02 1343060                   /usr/lib/aarch64-linux-gnu/libdl.so.2
+f71ba231f000-f71ba2320000 r--p 0000f000 103:02 1343060                   /usr/lib/aarch64-linux-gnu/libdl.so.2
+f71ba2320000-f71ba2321000 rw-p 00010000 103:02 1343060                   /usr/lib/aarch64-linux-gnu/libdl.so.2
+f71ba2330000-f71ba2331000 r-xp 00000000 103:02 1343072                   /usr/lib/aarch64-linux-gnu/librt.so.1
+f71ba2331000-f71ba234f000 ---p 00001000 103:02 1343072                   /usr/lib/aarch64-linux-gnu/librt.so.1
+f71ba234f000-f71ba2350000 r--p 0000f000 103:02 1343072                   /usr/lib/aarch64-linux-gnu/librt.so.1
+f71ba2350000-f71ba2351000 rw-p 00010000 103:02 1343072                   /usr/lib/aarch64-linux-gnu/librt.so.1
+f71ba2360000-f71ba2361000 r-xp 00000000 103:02 1343070                   /usr/lib/aarch64-linux-gnu/libpthread.so.0
+f71ba2361000-f71ba237f000 ---p 00001000 103:02 1343070                   /usr/lib/aarch64-linux-gnu/libpthread.so.0
+f71ba237f000-f71ba2380000 r--p 0000f000 103:02 1343070                   /usr/lib/aarch64-linux-gnu/libpthread.so.0
+f71ba2380000-f71ba2381000 rw-p 00010000 103:02 1343070                   /usr/lib/aarch64-linux-gnu/libpthread.so.0
+f71ba2390000-f71ba252a000 r-xp 00000000 103:02 1343058                   /usr/lib/aarch64-linux-gnu/libc.so.6
+f71ba252a000-f71ba253d000 ---p 0019a000 103:02 1343058                   /usr/lib/aarch64-linux-gnu/libc.so.6
+f71ba253d000-f71ba2540000 r--p 0019d000 103:02 1343058                   /usr/lib/aarch64-linux-gnu/libc.so.6
+f71ba2540000-f71ba2542000 rw-p 001a0000 103:02 1343058                   /usr/lib/aarch64-linux-gnu/libc.so.6
+f71ba2542000-f71ba254e000 rw-p 00000000 00:00 0 
+f71ba2550000-f71ba7dd3000 r-xp 00000000 103:02 1328078                   /usr/lib/aarch64-linux-gnu/libcuda.so.580.173.02
+f71ba7dd3000-f71ba7de2000 ---p 05883000 103:02 1328078                   /usr/lib/aarch64-linux-gnu/libcuda.so.580.173.02
+f71ba7de2000-f71ba8157000 r--p 05882000 103:02 1328078                   /usr/lib/aarch64-linux-gnu/libcuda.so.580.173.02
+f71ba8157000-f71ba815e000 rw-p 05bf7000 103:02 1328078                   /usr/lib/aarch64-linux-gnu/libcuda.so.580.173.02
+f71ba815e000-f71ba81d5000 rw-p 00000000 00:00 0 
+f71ba81e0000-f71ba81f0000 -w-s 00000000 00:07 1020                       /dev/nvidia0
+f71ba81f0000-f71badc24000 r-xp 00000000 103:02 1615318                   /usr/local/cuda-13.0/targets/sbsa-linux/lib/libnvrtc.so.13.0.88
+f71badc24000-f71badc34000 ---p 05a34000 103:02 1615318                   /usr/local/cuda-13.0/targets/sbsa-linux/lib/libnvrtc.so.13.0.88
+f71badc34000-f71badea3000 r--p 05a34000 103:02 1615318                   /usr/local/cuda-13.0/targets/sbsa-linux/lib/libnvrtc.so.13.0.88
+f71badea3000-f71bae0e5000 rw-p 05ca3000 103:02 1615318                   /usr/local/cuda-13.0/targets/sbsa-linux/lib/libnvrtc.so.13.0.88
+f71bae0e5000-f71bae42d000 rw-p 00000000 00:00 0 
+f71bae437000-f71bae45e000 r-xp 00000000 103:02 1343055                   /usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+f71bae468000-f71bae469000 r--s 00000000 00:07 1019                       /dev/nvidiactl
+f71bae469000-f71bae46f000 rw-p 00000000 00:00 0 
+f71bae46f000-f71bae473000 r--p 00000000 00:00 0                          [vvar]
+f71bae473000-f71bae475000 r-xp 00000000 00:00 0                          [vdso]
+f71bae475000-f71bae477000 r--p 0002e000 103:02 1343055                   /usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+f71bae477000-f71bae479000 rw-p 00030000 103:02 1343055                   /usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+ffffdb882000-ffffdb8a4000 rw-p 00000000 00:00 0                          [stack]

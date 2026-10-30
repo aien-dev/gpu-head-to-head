@@ -1,0 +1,43 @@
+{
+  "at": "2026-10-29T12:42:21.344Z",
+  "scope": "Full16prompt request and GPU placement verification, not final model accuracy or performance",
+  "successfulRequests": 16,
+  "configurationCorrection": "--no-repack; same GGUF and backend as failed prior placement attempt",
+  "placement": "PASS_ALL_THREE_OPERATIONS",
+  "profile": [
+    "omega-gb10-profile op=RMS_NORM calls=316066 ms=36257.777",
+    "omega-gb10-profile op=MUL_MAT calls=514370 ms=522851.372",
+    "omega-gb10-profile op=SWIGLU calls=66096 ms=8265.802"
+  ],
+  "forbiddenLibraries": [],
+  "backendSource": "9b1d3d5",
+  "files": [
+    {
+      "name": "LLOMEGA8.jsonl",
+      "sha256": "dec6aacd41fbc2782c6982a70b538bccab855c02df7d5f0514fdc604916331b4"
+    },
+    {
+      "name": "LLOMEGA8-maps-after-inference.txt",
+      "sha256": "15e369b8bfeb0f3dc330c0c02796aa22a9868a57c6a7b4c63f98857e364f5494"
+    }
+  ],
+  "tokenAnalysis": "llomega8-corrected-token-audit.json",
+  "sharedRestoration": {
+    "runnerExit": 0,
+    "health": {
+      "busy": false,
+      "concurrency": 8,
+      "engine": "omega-qwen36-batch",
+      "in_flight": 1,
+      "model": "qwen3.6-35b-a3b-fp8",
+      "status": "ok",
+      "uptime_s": 15
+    }
+  },
+  "referenceTokenizerValidated": true,
+  "observationCounts": {
+    "IDENTICAL": 1,
+    "EXACT_PRIOR_TUPLE": 9,
+    "NEEDS_ORACLE_OBSERVATION": 6
+  }
+}

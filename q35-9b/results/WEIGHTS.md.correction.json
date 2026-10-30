@@ -1,0 +1,28 @@
+{
+  "status": "PARTIAL_LAYOUT_UNVERIFIED",
+  "target": "WEIGHTS.md",
+  "target_sha256": "c018e655d86c37980b9da4e40fe510ea78fb0af4eb7694587db4f241aa9e8691",
+  "checker": "q35-9b/tools/cmp_weights2.py",
+  "checker_sha256": "a49198974a06a590b98794ae8ff07925fdc9104579e86f07e527c8f1ec3b9dca",
+  "finding": "The checker hashes sorted float values. Equal sorted values establish a multiset match, not the required axis/head permutation or a functional equivalence proof.",
+  "preserved": "The original document and receipts are unchanged. Fresh HF and GGUF file hashes match their saved manifests. This finding does not demonstrate that the model conversion is wrong.",
+  "admission": "Do not use sorted-value equality alone to qualify weight-layout equivalence. Verify named tensors against the explicit converter permutations and numeric transforms.",
+  "counterexample": {
+    "kind": "MODELED logical counterexample, not a hardware measurement",
+    "wolfram_query": "With[{a = {{1, 2}, {3, 4}}, b = {{3, 4}, {1, 2}}, x = {1, 0}}, <|\"SameSortedValues\" -> (Sort[Flatten[a]] == Sort[Flatten[b]]), \"SameOutput\" -> (a.x == b.x), \"Outputs\" -> {a.x, b.x}|>]",
+    "wolfram_result": {"SameSortedValues":true,"SameOutput":false,"Outputs":[[1,3],[3,1]]}
+  },
+  "source_for_followup": {
+    "llama_cpp": "7aca0d2ea8d92b56911233b822db01f9fbb1ae50",
+    "path": "conversion/qwen.py",
+    "entrypoints": ["_LinearAttentionVReorderBase._reorder_v_heads", "_LinearAttentionVReorderBase.modify_tensors", "Qwen3NextModel.modify_tensors", "Qwen3_5TextModel"],
+    "requirements": [
+      "Q/K/V split: preserve Q and K, permute V rows by the declared key/value-head layout",
+      "Gate and alpha/beta projection row permutations",
+      "Output-projection column permutation",
+      "Conv1d V-channel and one-dimensional parameter permutations",
+      "Exact widening, zero-centred norm folding and A_log transformation checks",
+      "Negative controls with preserved multisets and deliberately wrong ordering must fail"
+    ]
+  }
+}

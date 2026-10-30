@@ -71,6 +71,18 @@ h2h_descendant_pids() {
     }'
 }
 
+# Reap an exited child of this shell without blocking on a pid that is already gone.
+# A pid with no /proc entry was reaped by this shell already; Bash 5.2 `wait` on it
+# from an EXIT trap that interrupted another `wait` (the watchdog's TERM) can block
+# forever. A pid that is not this shell's child cannot be waited for either.
+h2h_reap() {
+  local identity state birth parent
+  identity=$(h2h_identity "$1") || return 0
+  read -r state birth parent <<< "$identity"
+  [ "$parent" = "$BASHPID" ] || return 0
+  wait "$1" 2>/dev/null || true
+}
+
 h2h_stop() {
   local pid=$1 attempts=${2:-600} child birth attempt alive
   local -a tree=()
@@ -84,7 +96,7 @@ h2h_stop() {
         return 1
       fi
     fi
-    wait "$pid" 2>/dev/null || true
+    h2h_reap "$pid"
     unset 'H2H_PID_START[$pid]'
     return 0
   fi
@@ -107,7 +119,7 @@ h2h_stop() {
       h2h_matches "$child" && kill -KILL "$child" 2>/dev/null || true
     done
   fi
-  wait "$pid" 2>/dev/null || true
+  h2h_reap "$pid"
   for ((attempt=0; attempt<20; attempt++)); do
     if [ -n "${H2H_STOP_DEADLINE:-}" ] && [ "$SECONDS" -ge "$H2H_STOP_DEADLINE" ]; then break; fi
     alive=0

@@ -1,0 +1,47 @@
+{
+  "status": "ORDERED_FILE_TRANSFORMS_VERIFIED",
+  "scope": "Pinned Q35-9B text checkpoint file conversion; not inference or performance qualification",
+  "previous_record": "WEIGHTS.md.correction.json",
+  "historical_document_sha256": "c018e655d86c37980b9da4e40fe510ea78fb0af4eb7694587db4f241aa9e8691",
+  "source": "llama.cpp7aca0d2ea8d92b56911233b822db01f9fbb1ae50 conversion/qwen.py",
+  "model": "Qwen/Qwen3.5-9B c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+  "result": {
+    "namedTextTensors": 427,
+    "exact": 427,
+    "mismatches": 0,
+    "ggufMtpExcluded": 15
+  },
+  "report_sha256": "b84dcccda0ad93ca41d4f8d847809661d263888cdb3468e7db28fb366328d0f4",
+  "checker_sources": {
+    "weight-files.mjs": "b65be19fcd1a13555a998362241d5b2de638cf5e438b7af7a720632b5eafd7d6",
+    "ordered-weights.mjs": "98a5e03fbb849aa8cd3d22b3b473babae907c8371236796ec4d71a912190d3c8",
+    "weight-numeric-glue.c": "cda71957fbdcbc3cb82ad64ace19e7dc5161ccf2f8d54aff06e6896ba53282e5",
+    "torch-cpu-exp.cpp": "be9b73394281c1bdae26601515ae51439b6096abb4fb3683cdc280f3e55a0589",
+    "torch-cpu-exp.sh": "8c9d39501bbe91021fe56682ad8c6d01bef6b719b63186dd72f2e6dcd64ad0bb",
+    "build-weight-oracles.sh": "a10aabf1e166fd17e5ebdcb1732e5476db2fb3aae15d21f1dbb6236a4b646a48",
+    "test-ordered-weights.mjs": "6cd6edfa8b2cc4f515e37079db3a3cb3a79afcdbd2d9c6e3a4918748483a6a21"
+  },
+  "oracle_objects": {
+    "omega_kernel_object_sha256": "df724fe63c2e8c1c97459c044ff69bb5c40813ea393c0245b2cd3d028602a4cf",
+    "omega_glue_sha256": "b2e176217d25a4abdcd0e4cc05f963be314c72ec56f430b5007acf588cc8b1ee",
+    "aten_glue_sha256": "91c8584fcbddf6e6888af8f778ef6d91b31e5ee19842658b40d416bf727bf638",
+    "torch": "2.14.0a0+b2c75dd062.nv26.09",
+    "image_digest": "557747337846eecf34486866f3d992383c6f8af869fdb0e365b5093fcaee02c2",
+    "role": "Verification only; arithmetic calls use explicit CPU tensors. Library dependencies include libcudart; no absence claim."
+  },
+  "controls": {
+    "synthetic": "6PASS",
+    "realTensorWrongOrder": "Rejected with unchanged value multiset; intended byte mismatch",
+    "numeric": "Omega and ATen controls match recorded Wolfram vectors; malformed bytes refused",
+    "rebuild": "Build-script rebuild is byte-identical to both tested numeric helpers"
+  },
+  "preserved_failures": [
+    "Initial name-map diagnostic (no model verdict)",
+    "Omega-only exponential mismatch in ordered-weight-check-2.json; no tolerance widened"
+  ],
+  "still_unverified": [
+    "Fresh output-reference observations for9tuples",
+    "Full backend model qualification requiring an authorized exclusive window",
+    "Complete repeated timing campaign and final comparison"
+  ]
+}
