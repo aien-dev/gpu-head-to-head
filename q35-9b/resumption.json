@@ -1,0 +1,30 @@
+{
+  "scope": "Component-local experiment resumption, not a master plan",
+  "status": "operator_checks_and_client_controls_pass; model_qualification_and_timing_incomplete",
+  "backend_source": "e0813903ee2fc5f6ac23e6424741b00977d4bef9",
+  "cudapp_source": "69a2419e5239c97d903fe6c9a2f59718c22d288f",
+  "cudapp_base": "fc591d685ffce5a38013103aaf193867a870ca7f",
+  "cudapp_library_sha256": "d45eaac7c22b7780a216930ebe057ddeeff48ca605ceaa7a97e68673a80294ce",
+  "backend_library_sha256": "c9736aa25fe8238d9267dd1261f078de1dd82ed8b984f1bdae95f8f71baacf1d",
+  "bfs_lo_mutant_library_sha256": "4ae3c8acce38af95011ba2f18b8b434cdb4be6afb522846a240f244dcd45296e",
+  "source_status": "Unmerged experimental candidates; source pins are not deployment claims",
+  "compiler_sha256": "2c82480596bbdc50cda9626866209ef662d5834f278f839ff4ce0250c495029f",
+  "native_om_sha256": "901684b2dc7cd148eb6bb2fe74dd43a6bce857ff014308b00ebaa9d18029158d",
+  "llama_cpp_source": "7aca0d2ea8d92b56911233b822db01f9fbb1ae50",
+  "observed_operator_checks": {
+    "MUL_MAT": {"passed":871,"failed":0,"unsupported":1994},
+    "RMS_NORM": {"passed":7,"failed":0,"unsupported":54},
+    "SWIGLU": {"passed":12,"failed":0,"unsupported":24},
+    "bfs_lo_mutant": {"failed_as_expected":101}
+  },
+  "host_kernels": "PASS; deliberately wrong bfs-lo conversion fails its independent host check",
+  "client_controls": {"passed":10,"failed":0,"node_version":"v24.21.0"},
+  "remaining": [
+    "Independent source/weight-layout and current model correctness checks",
+    "Full backend model gate requires an authorized exclusive window; no service stop authorized",
+    "Complete repeated timing campaign with one instrument and preserved failed attempts",
+    "Wolfram summaries and source-bound final comparison",
+    "Audit and complete larger-model P0 comparisons without relaxing their exclusive-memory rule"
+  ],
+  "new_timed_runs": false
+}
