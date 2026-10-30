@@ -6,6 +6,7 @@ the GPU-stack plan: prove the numbers before claiming them, and publish them eve
 
 - Protocol (predeclared, committed before the first run): [PROTOCOL.md](PROTOCOL.md)
 - Results table: planned at `results/RESULTS.md`, not present in this tree.
+- Cold-start study (separate, chip-level, amendment A7): [coldstart/PROTOCOL.md](coldstart/PROTOCOL.md), results in `results/coldstart/`
 - Raw request rows, server logs, memory samples, versions: [results/](results/)
 - Client and scripts: [bench/](bench/)
 
