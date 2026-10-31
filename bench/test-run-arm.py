@@ -27,7 +27,7 @@ class CellGateTests(unittest.TestCase):
 ROOT=%s
 LOGD=$ROOT REPO=$ROOT RESULTS=$ROOT OUT=$ROOT/rows.jsonl
 ARM=CONTROL ROUND=R0 PORT=1 MID=fixture
-MON_CPU=2 CLI_CPUS=0-1 SRV_CPUS=5 SRV_LIST=' 5 '
+MON_CPU=2 CLI_CPUS=0-1 CLI_NICE=0 SRV_CPUS=5 SRV_LIST=' 5 '
 CELLS_COMPLETED=0
 wait_quiet() { return %d; }
 mytree() { echo $$; }

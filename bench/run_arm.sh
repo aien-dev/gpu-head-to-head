@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# One arm session of the head-to-head (PROTOCOL.md sections 6-8, amendments A1-A3).
-# usage: bench/run_arm.sh OURS|VLLM|SGLANG|LLAMA|LLAMA16|VLLM4|SGLANG4|LLAMA4 R1|R2
-# Holds /tmp/aien-gb10.lock for the whole session (at most 60 min), writes BOARD lines,
-# starts exactly one server, runs every cell, stops the server and checks the unload.
+# One arm session of the head-to-head (PROTOCOL.md sections 6-8, amendments A1-A10).
+# usage: bench/run_arm.sh OURS|VLLM|SGLANG|LLAMA|LLAMA16|VLLM4|SGLANG4|LLAMA4|VLLM_<conf arm> ROUND
+# VLLM_<conf arm>: any arm declared in bench/arms.conf (ARM_MODEL[...]), PROTOCOL A10.
+# Holds the GB10 lock for the whole session (at most 60 min; less with H2H_DEADLINE_EPOCH), or runs
+# inside the caller's exclusive spark-window (A10), writes BOARD lines, starts exactly one server,
+# runs the declared cell sets (H2H_CELLS, comma list), stops the server and checks the unload.
 # Ends with results/logs/<ARM>-<ROUND>/DONE, or NOT_RUN (with the reason) if the arm cannot start.
+# H2H_PRINT_LAUNCH=1 prints the server launch argv (one item per line) and exits with no side effect.
 set -u
 ARM=$1; ROUND=$2
 REPO=${H2H_REPO:-$(cd "$(dirname "$0")/.." && pwd)}
@@ -18,20 +21,36 @@ GGUF=$H2H/gguf/q36-35b-a3b-q8_0.gguf
 GGUF16=$H2H/gguf/q36-35b-a3b-bf16.gguf
 # A3 arms: SGLANG_IMG (image@digest), MODEL4 (vLLM/SGLang 4-bit checkpoint dir), GGUF4 (llama.cpp
 # 4-bit GGUF) are set in bench/arms.conf once verified; unset -> the arm is recorded NOT_RUN.
+# A10: bench/arms.conf also declares the per-arm vLLM hooks (ARM_* arrays) and the OURS binary.
 SGLANG_IMG=; MODEL4=; GGUF4=
+declare -A ARM_MODEL=() ARM_IMG=() ARM_UTIL=() ARM_QUANT=() ARM_KV=() ARM_ATTN=() ARM_MOE=() \
+  ARM_SPEC=() ARM_PREFIX=() ARM_PROFILE=()
+OURS_BIN_DIR=${OURS_BIN_DIR:-/home/drakestapleton/.local/state/aien-q36/bin-19173f9e}
+OURS_BIN_SHA256=${OURS_BIN_SHA256:-19173f9ec3b609fe79af644f84741d8808b92ea8eb3ecec4bc945af6f22b3aeb}
+OURS_WAVE=${OURS_WAVE:-0}   # A10: AIEN_OMEGA_FP8_GROUPED_WAVE recorded and passed explicitly to OURS
+NSYS_DIR=/opt/nvidia/nsight-systems/2025.3.2
 [ -f "$REPO/bench/arms.conf" ] && . "$REPO/bench/arms.conf"
-BOARD=/home/drakestapleton/handoffs/BOARD.md
+BOARD=${H2H_BOARD:-/home/drakestapleton/handoffs/BOARD.md}
 VLLM_UTIL=${VLLM_UTIL:-0.50}
 SGLANG_MEM=${SGLANG_MEM:-0.50}
 RESULTS=${H2H_RESULTS:-$REPO/results}
 OUT=$RESULTS/raw/$ARM-$ROUND.jsonl
 LOGD=$RESULTS/logs/$ARM-$ROUND
-if [ -e "$OUT" ] || [ -e "$LOGD" ]; then
-  echo "refusing to overwrite an existing session: $LOGD or $OUT" >&2
-  exit 2
+DEADLINE=${H2H_DEADLINE_EPOCH:-}   # A10: absolute epoch by which the whole session must have stopped
+CELLSET=${H2H_CELLS:-full}         # A10: comma list of full (14 cells, A3) | dra74 (7) | nsys-c8 (1)
+                                   #      | ttft-fresh (1 per H2H_TTFT_PROMPTS item) | ttft-turn2 (1)
+TTFT_PROMPTS=${H2H_TTFT_PROMPTS:-t2k,t8k,t32k}  # A10: ttft-fresh prompts, in order
+TTFT_REPS=${H2H_TTFT_REPS:-3}; TTFT_REP_BASE=${H2H_TTFT_REP_BASE:-0}  # A10: reps split across slices
+PREFIX_OVERRIDE=${H2H_PREFIX:-}    # A10: "on" enables vLLM prefix caching for a ttft-turn2-only session
+[ "$PREFIX_OVERRIDE" = on ] && ARM_PREFIX[$ARM]=on  # validated in arm_preconditions before any launch
+if [ "${H2H_PRINT_LAUNCH:-0}" != 1 ]; then
+  if [ -e "$OUT" ] || [ -e "$LOGD" ]; then
+    echo "refusing to overwrite an existing session: $LOGD or $OUT" >&2
+    exit 2
+  fi
+  mkdir -p "$LOGD" "$(dirname "$OUT")"
+  touch "$RESULTS/cell-status.jsonl" || exit 2
 fi
-mkdir -p "$LOGD" "$(dirname "$OUT")"
-touch "$RESULTS/cell-status.jsonl" || exit 2
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 board() { echo "$(ts) HeadToHead: $*" >> "$BOARD"; echo "$(ts) $*" >> "$LOGD/session.log"; }
 notrun() { board "$ARM $ROUND NOT_RUN: $*"; echo "$*" > "$LOGD/NOT_RUN"; exit 4; }
@@ -46,25 +65,57 @@ case $ARM in
   LLAMA)   PORT=18192; PAT='llama-server.*--port 18192'; MID=q36; G=$GGUF; MMAP= ;;
   LLAMA16) PORT=18193; PAT='llama-server.*--port 18193'; MID=q36; G=$GGUF16; MMAP=--no-mmap ;;
   LLAMA4)  PORT=18192; PAT='llama-server.*--port 18192'; MID=q36; G=$GGUF4; MMAP= ;;
+  VLLM_*)
+    [ -n "${ARM_MODEL[$ARM]:-}" ] || { echo "bad arm: $ARM is not declared in bench/arms.conf"; exit 2; }
+    PORT=18191; PAT='vllm serve|VLLM::|EngineCore'; MID=q36; CTR=stack-h2h-$RUN_ID; MDIR=${ARM_MODEL[$ARM]}
+    VLLM_IMG=${ARM_IMG[$ARM]:-$VLLM_IMG}; VLLM_UTIL=${ARM_UTIL[$ARM]:-$VLLM_UTIL} ;;
   *) echo "bad arm"; exit 2 ;;
 esac
 
 # A2: cpus 5-9,15-19 are Cortex-X925 (CPU part 0xd85), 0-4,10-14 Cortex-A725 (0xd87).
-# Every server gets 9 of the 10 X925 cores; the client runs on two A725 cores.
-# A4(e): the excluded X925 core is the one the nvidia-modeset kthread is on when the session takes
-# the GPU lock (core 18 if it is on an A725 core), chosen by pick_srv before the server starts.
+# A10 (supersedes A4(e)): the server gets the X925 cores minus core 17, minus the client and monitor
+# cores, minus the core the nvidia-modeset kthread is on when the session takes the GPU lock (core 18
+# when that core is on an A725 core or already excluded, so the count is constant). Default client
+# 0-1 and monitor 2 leave 8 server cores; the DRA-74 slices put the client on X925 core 5 at nice 19.
 X925=" 5 6 7 8 9 15 16 17 18 19 "
+cpus_expand() {  # "0-1,5" -> " 0 1 5 "
+  local IFS=, p out=" "
+  for p in $1; do
+    if [[ "$p" =~ ^([0-9]+)-([0-9]+)$ ]]; then out="$out$(seq -s ' ' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}") "
+    elif [[ "$p" =~ ^[0-9]+$ ]]; then out="$out$p "
+    else return 1; fi
+  done
+  echo "$out"
+}
+cpu_guard() {  # A10: fail closed unless the client and monitor cores are valid and disjoint
+  local cli c
+  cli=$(cpus_expand "$CLI_CPUS") && [ "$cli" != " " ] || { echo "client cpu list '$CLI_CPUS' is invalid"; return 1; }
+  [[ "$MON_CPU" =~ ^[0-9]+$ ]] || { echo "MON_CPU '$MON_CPU' must be one core number"; return 1; }
+  for c in $cli $MON_CPU; do
+    [ "$c" -le 19 ] || { echo "core $c does not exist"; return 1; }
+    [ "$c" -lt 10 ] || [ "$c" -gt 14 ] || { echo "core $c is in the 10-14 build set other lanes use"; return 1; }
+    [ "$c" != 17 ] || { echo "core 17 is excluded from every session role"; return 1; }
+  done
+  case $cli in *" $MON_CPU "*) echo "MON_CPU $MON_CPU overlaps the client cores $CLI_CPUS"; return 1 ;; esac
+  [[ "$CLI_NICE" =~ ^[0-9]+$ ]] && [ "$CLI_NICE" -le 19 ] || { echo "client nice '$CLI_NICE' must be 0-19"; return 1; }
+}
 pick_srv() {
-  local k=$(ktpsr) c
+  local k=$(ktpsr) c excl
+  cpu_guard >/dev/null || return 1
+  excl=" 17$(cpus_expand "$CLI_CPUS")$MON_CPU "
   case $X925 in *" $k "*) ;; *) k=18 ;; esac
-  SRV_LIST=" "; for c in $X925; do [ "$c" = "$k" ] || SRV_LIST="$SRV_LIST$c "; done
+  case $excl in *" $k "*) k=18 ;; esac
+  excl="$excl$k "
+  SRV_LIST=" "; for c in $X925; do case $excl in *" $c "*) ;; *) SRV_LIST="$SRV_LIST$c " ;; esac; done
+  case $SRV_LIST in *" 17 "*|*" $MON_CPU "*|" ") return 1 ;; esac
   SRV_CPUS=$(echo $SRV_LIST | tr ' ' ',')
   export H2H_SRV_CPUS=$SRV_CPUS
 }
-SRV_CPUS=5-9,15-17,19
-SRV_LIST=" 5 6 7 8 9 15 16 17 19 "
-CLI_CPUS=0-1   # A5(d): A725 cores outside the 10-14 build set other lanes use
-MON_CPU=2      # coremon.py (A4), an A725 core outside the server and client sets
+SRV_CPUS=5-9,15-16,18-19
+SRV_LIST=" 5 6 7 8 9 15 16 18 19 "
+CLI_CPUS=${H2H_CLIENT_CPUS:-0-1}   # A5(d): A725 cores outside the 10-14 build set; A10: slices use 5
+CLI_NICE=${H2H_CLIENT_NICE:-0}     # A10: slices run the client at nice 19
+MON_CPU=${H2H_MON_CPU:-2}          # coremon.py (A4), outside the server and client sets (cpu_guard)
 export H2H_SRV_CPUS=$SRV_CPUS H2H_CLI_CPUS=$CLI_CPUS
 KT=1671   # nvidia-modeset kthread; never reniced or pinned during the study (A2)
 ktpsr() { awk '{print $39}' /proc/$KT/stat 2>/dev/null || echo NA; }
@@ -79,7 +130,7 @@ wait_quiet() {  # PROTOCOL A2: before each cell, no foreign process >20% CPU ove
     if python3 "$REPO/bench/quiet.py" --window 10 --max-load 0 --exclude-tree $(mytree) >> "$LOGD/quiet.jsonl"; then
       return 0
     fi
-    if [ $SECONDS -ge 3000 ]; then echo "$(ts) quiet gate timeout" >> "$LOGD/session.log"; return 1; fi
+    if [ "$(date +%s)" -ge "$QUIET_AT" ]; then echo "$(ts) quiet gate timeout" >> "$LOGD/session.log"; return 1; fi
   done
 }
 
@@ -110,18 +161,19 @@ server_pids() {
 start_server() {
   case $ARM in
     OURS)
-      ( cd /home/drakestapleton/.local/state/aien-q36/bin-19173f9e && \
-        exec env AIEN_Q36_STROKE=1 Q36_BATCH_BIN=bin-19173f9e AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock \
-            AIEN_GB10_LOCK_HELD=1 \
+      ( cd "$OURS_BIN_DIR" && \
+        exec env AIEN_Q36_STROKE=1 Q36_BATCH_BIN="$(basename "$OURS_BIN_DIR")" AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock \
+            AIEN_GB10_LOCK_HELD=1 AIEN_OMEGA_FP8_GROUPED_WAVE="$OURS_WAVE" \
         taskset -c $SRV_CPUS ./aien-serve-http --engine omega --model-dir "$MODEL" --bind 127.0.0.1 --port 18190 --max-context 49152 \
              --max-tokens-cap 16384 --thinking off --batch-slots 8 ) < /dev/null > "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
-    VLLM|VLLM4)
+    VLLM|VLLM4|VLLM_*)
+      vllm_argv || return 1
+      [ "${#DARGV[@]}" -eq 0 ] || mkdir -p "$LOGD/nsys" || return 1   # only the nsys arm mounts docker extras
+      printf '%s\n' "${DARGV[@]}" -v "$MDIR:/model:ro" "$VLLM_IMG" "${VARGV[@]}" > "$LOGD/launch.txt"
       timeout 30 docker create --pull never --rm --name "$CTR" --label "aien.stack-comparison.run=$RUN_ID" --runtime nvidia --gpus all --ipc host --network host \
-        --cpuset-cpus $SRV_CPUS -v "$MDIR":/model:ro "$VLLM_IMG" vllm serve /model --served-model-name q36 \
-        --host 127.0.0.1 --port 18191 \
-        --max-model-len 49152 --max-num-seqs 32 --gpu-memory-utilization "$VLLM_UTIL" \
-        --language-model-only < /dev/null > "$LOGD/container-id.txt" 2> "$LOGD/server.log" || return 1
+        --cpuset-cpus $SRV_CPUS "${DARGV[@]}" -v "$MDIR":/model:ro "$VLLM_IMG" "${VARGV[@]}" \
+        < /dev/null > "$LOGD/container-id.txt" 2> "$LOGD/server.log" || return 1
       docker start --attach "$CTR" < /dev/null >> "$LOGD/server.log" 2>&1 &
       SPID=$! ;;
     SGLANG|SGLANG4)
@@ -139,6 +191,33 @@ start_server() {
   esac
   h2h_track "$SPID" || return 1
   printf '%s %s\n' "$SPID" "${H2H_PID_START[$SPID]}" > "$LOGD/server-identity.txt"
+}
+
+vllm_argv() {  # A10: VARGV = argv inside the container, DARGV = extra docker create options
+  VARGV=(vllm serve /model --served-model-name q36 --host 127.0.0.1 --port 18191 --max-model-len 49152
+    --max-num-seqs 32 --gpu-memory-utilization "$VLLM_UTIL" --language-model-only)
+  DARGV=()
+  case $ARM in VLLM|VLLM4) return 0 ;; esac   # A1/A3 arms: argv unchanged
+  [ -z "${ARM_QUANT[$ARM]:-}" ] || VARGV+=(--quantization "${ARM_QUANT[$ARM]}")
+  [ -z "${ARM_KV[$ARM]:-}" ] || VARGV+=(--kv-cache-dtype "${ARM_KV[$ARM]}")
+  [ -z "${ARM_ATTN[$ARM]:-}" ] || VARGV+=(--attention-backend "${ARM_ATTN[$ARM]}")
+  [ -z "${ARM_MOE[$ARM]:-}" ] || VARGV+=(--moe-backend "${ARM_MOE[$ARM]}")
+  [ -z "${ARM_SPEC[$ARM]:-}" ] || VARGV+=(--speculative-config "${ARM_SPEC[$ARM]}")
+  case ${ARM_PREFIX[$ARM]:-} in
+    off) VARGV+=(--no-enable-prefix-caching) ;;
+    on) VARGV+=(--enable-prefix-caching) ;;
+    '') ;;
+    *) echo "ARM_PREFIX[$ARM]='${ARM_PREFIX[$ARM]}' must be on, off or empty" >&2; return 1 ;;
+  esac
+  case ${ARM_PROFILE[$ARM]:-} in
+    '') ;;
+    nsys)  # A10: kernel timeline of the cudaProfilerApi range opened by POST /start_profile
+      DARGV=(-v "$NSYS_DIR:/nsys:ro" -v "$LOGD/nsys:/nsys-out")
+      VARGV=(/nsys/bin/nsys profile -t cuda,nvtx --cuda-graph-trace=node --capture-range=cudaProfilerApi
+        --capture-range-end=repeat -f true -o "/nsys-out/$ARM-$ROUND" "${VARGV[@]}"
+        --profiler-config '{"profiler":"cuda"}') ;;
+    *) echo "ARM_PROFILE[$ARM]='${ARM_PROFILE[$ARM]}' must be nsys or empty" >&2; return 1 ;;
+  esac
 }
 
 stop_server() {
@@ -170,6 +249,69 @@ loopback_only() {  # A5(f): every listener on the test port must be 127.0.0.1, e
   [ -s "$LOGD/listen.txt" ] && ! awk '{print $4}' "$LOGD/listen.txt" | grep -qv '^127\.0\.0\.1:'
 }
 
+window_held() {  # A10: inside the runner's exclusive spark-window, the window holds the GB10 lock
+  local id
+  [ "${AIEN_GB10_LOCK_HELD:-}" = 1 ] && [ -n "${SPARK_WINDOW:-}" ] && [ -n "${SPARK_WINDOW_DIR:-}" ] \
+    || { echo "AIEN_GB10_LOCK_HELD/SPARK_WINDOW/SPARK_WINDOW_DIR incomplete"; return 1; }
+  id=$(timeout 10 "${SPARK_WINDOW_BIN:-spark-window}" id 2>/dev/null) || { echo "spark-window id failed"; return 1; }
+  [ "$id" = "$SPARK_WINDOW" ] || { echo "held window '$id' is not SPARK_WINDOW '$SPARK_WINDOW'"; return 1; }
+  [ "$(cat "$SPARK_WINDOW_DIR/gb10" 2>/dev/null)" = exclusive ] || { echo "window $id does not hold the GB10 exclusively"; return 1; }
+}
+
+arm_preconditions() {  # prints the NOT_RUN reason and returns 1; no side effects
+  case $ARM in
+    SGLANG*) [ -n "$SGLANG_IMG" ] || { echo "no SGLang image verified for aarch64/sm_121 (bench/arms.conf)"; return 1; } ;;
+  esac
+  case $ARM in
+    VLLM4|SGLANG4) [ -n "$MODEL4" ] && [ -f "$MODEL4/config.json" ] || { echo "no 4-bit checkpoint (bench/arms.conf MODEL4)"; return 1; } ;;
+    LLAMA4) [ -n "$GGUF4" ] && [ -f "$GGUF4" ] || { echo "no 4-bit GGUF (bench/arms.conf GGUF4)"; return 1; } ;;
+    VLLM_*) [ -f "$MDIR/config.json" ] || { echo "$ARM model dir $MDIR has no config.json"; return 1; } ;;
+    OURS)
+      local sha
+      sha=$(sha256sum "$OURS_BIN_DIR/aien-serve-http" 2>/dev/null | cut -d' ' -f1)
+      [ "$sha" = "$OURS_BIN_SHA256" ] || { echo "OURS binary $OURS_BIN_DIR/aien-serve-http sha256 '${sha:-missing}' is not $OURS_BIN_SHA256"; return 1; }
+      [[ "$OURS_WAVE" =~ ^[01]$ ]] || { echo "OURS_WAVE must be 0 or 1"; return 1; } ;;
+  esac
+  cpu_guard || return 1
+  if [ -n "$DEADLINE" ]; then
+    [[ "$DEADLINE" =~ ^[0-9]+$ ]] && [ "$DEADLINE" -gt $(( $(date +%s) + 600 )) ] \
+      || { echo "H2H_DEADLINE_EPOCH '$DEADLINE' must be an epoch more than 600 s ahead"; return 1; }
+  fi
+  if [ -n "$PREFIX_OVERRIDE" ]; then
+    [ "$PREFIX_OVERRIDE" = on ] && [[ $ARM == VLLM_* ]] && [ "$CELLSET" = ttft-turn2 ] \
+      || { echo "H2H_PREFIX=on applies only to a VLLM_* arm running H2H_CELLS=ttft-turn2 alone"; return 1; }
+  fi
+  [[ "$TTFT_REPS" =~ ^[1-9]$ && "$TTFT_REP_BASE" =~ ^[0-9]{1,2}$ ]] \
+    || { echo "H2H_TTFT_REPS must be 1-9 and H2H_TTFT_REP_BASE 0-99"; return 1; }
+  local set seen=,
+  for set in ${CELLSET//,/ }; do
+    [[ $seen != *",$set,"* ]] || { echo "H2H_CELLS '$CELLSET' names $set twice"; return 1; }
+    seen=$seen$set,
+    case $set in
+      full|dra74) [ "${ARM_PROFILE[$ARM]:-}" = "" ] || { echo "$ARM is a profiling arm; it runs only cell set nsys-c8"; return 1; } ;;
+      nsys-c8) [ "${ARM_PROFILE[$ARM]:-}" = nsys ] && [ -x "$NSYS_DIR/bin/nsys" ] \
+        || { echo "cell set nsys-c8 needs an ARM_PROFILE=nsys arm and $NSYS_DIR/bin/nsys"; return 1; }
+        [ "$CELLSET" = nsys-c8 ] || { echo "cell set nsys-c8 runs alone"; return 1; } ;;
+      ttft-fresh|ttft-turn2)
+        [[ $ARM == OURS || $ARM == VLLM_* ]] && [ "${ARM_PROFILE[$ARM]:-}" = "" ] \
+          || { echo "TTFT cell sets run on OURS and unprofiled VLLM_* arms only"; return 1; } ;;&
+      ttft-fresh)
+        [ "${ARM_PREFIX[$ARM]:-}" != on ] || { echo "ttft-fresh needs prefix caching off"; return 1; }
+        local p pseen=,
+        for p in ${TTFT_PROMPTS//,/ }; do
+          [[ $p =~ ^t(2|8|32)k$ && $pseen != *",$p,"* ]] || { echo "H2H_TTFT_PROMPTS '$TTFT_PROMPTS' must list distinct t2k, t8k, t32k"; return 1; }
+          pseen=$pseen$p,
+        done
+        [ "$pseen" != , ] || { echo "H2H_TTFT_PROMPTS is empty"; return 1; } ;;
+      ttft-turn2)
+        [[ $ARM != VLLM_* ]] || [ "$PREFIX_OVERRIDE" = on ] \
+          || { echo "ttft-turn2 on a vLLM arm needs H2H_PREFIX=on (the cached row)"; return 1; } ;;
+      *) echo "H2H_CELLS '$CELLSET': each item must be full, dra74, nsys-c8, ttft-fresh or ttft-turn2"; return 1 ;;
+    esac
+  done
+  [ "$seen" != , ] || { echo "H2H_CELLS is empty"; return 1; }
+}
+
 cell_status() {
   python3 -c 'import json,sys; print(json.dumps({"cell_run":sys.argv[1],"status":sys.argv[2]}))' \
     "$1" "$2" >> "$RESULTS/cell-status.jsonl"
@@ -190,7 +332,7 @@ cell() {  # metric concurrency max_tokens promptfile [extra]
     CMON_PID=$cm
     h2h_track "$cm" || return 1
     t0=$(date +%s)
-    taskset -c $CLI_CPUS python3 "$REPO/bench/bench.py" --port $PORT --model $MID --arm $ARM --round $ROUND --metric "$metric" \
+    taskset -c $CLI_CPUS nice -n "$CLI_NICE" python3 "$REPO/bench/bench.py" --port $PORT --model $MID --arm $ARM --round $ROUND --metric "$metric" \
       --prompts "$REPO/prompts/$pf" --concurrency $c --max-tokens $mt --out "$OUT" --cell-run "$id" "$@" 2>> "$LOGD/client.log" & CPID=$!
     h2h_track "$CPID" || return 1
     wait "$CPID"; clientrc=$?
@@ -246,8 +388,8 @@ else:
 }
 
 mark_complete() {
-  if [ "$CELLS_COMPLETED" -ne 14 ] || [ -e "$LOGD/TIMEOUT" ]; then
-    echo "incomplete: $CELLS_COMPLETED/14 accepted cells; see session.log" > "$LOGD/INCOMPLETE"
+  if [ "$CELLS_COMPLETED" -ne "${EXPECTED_CELLS:-14}" ] || [ -e "$LOGD/TIMEOUT" ]; then
+    echo "incomplete: $CELLS_COMPLETED/${EXPECTED_CELLS:-14} accepted cells; see session.log" > "$LOGD/INCOMPLETE"
     return 1
   fi
   touch "$LOGD/DONE"
@@ -256,12 +398,12 @@ mark_complete() {
 start_watchdog() {
   (
     if [ "$#" -ge 1 ]; then sleep "$1";
-    else delay=$((3300 - SECONDS)); [ "$delay" -le 0 ] || sleep "$delay"; fi
-    board "T-5 $ARM $ROUND: cleanup reserved within 60-minute limit"
+    else delay=$((WARN_AT - $(date +%s))); [ "$delay" -le 0 ] || sleep "$delay"; fi
+    board "T-$(( (${STOP_AT:-0} - ${WARN_AT:-0}) / 60 )) $ARM $ROUND: cleanup reserved before the session stop time"
     if [ "$#" -ge 2 ]; then sleep "$2";
-    else delay=$((3540 - SECONDS)); [ "$delay" -le 0 ] || sleep "$delay"; fi
+    else delay=$((STOP_AT - $(date +%s))); [ "$delay" -le 0 ] || sleep "$delay"; fi
     touch "$LOGD/TIMEOUT"
-    board "$ARM $ROUND reached 59 min; stopping own session with cleanup time reserved"
+    board "$ARM $ROUND reached its stop time; stopping own session with cleanup time reserved"
     kill -TERM $$
   ) & WD=$!
   h2h_track "$WD"
@@ -319,19 +461,26 @@ cleanup_session() {
 # PROTOCOL A2 (Main's gate): start only when no foreign process used >20% CPU for 60 s and load1 < 6,
 # before taking the lock, so the 60-min hold is not spent waiting
 SPID= CPID= CMON_PID= WD= SAMP= VMS= BASE= GPU_LOCK_HELD=0 GPU_LOCK_RELEASE=1
+if [ "${H2H_PRINT_LAUNCH:-0}" = 1 ]; then  # A10: show the launch, touch nothing
+  why=$(arm_preconditions) || { echo "NOT_RUN: $why" >&2; exit 4; }
+  pick_srv || { echo "NOT_RUN: core guard" >&2; exit 4; }
+  echo "server_cpus $SRV_CPUS client_cpus $CLI_CPUS client_nice $CLI_NICE monitor_cpu $MON_CPU" >&2
+  case $ARM in
+    VLLM|VLLM4|VLLM_*) vllm_argv || exit 4; printf '%s\n' "${DARGV[@]}" -v "$MDIR:/model:ro" "$VLLM_IMG" "${VARGV[@]}" ;;
+    OURS) printf '%s\n' "AIEN_OMEGA_FP8_GROUPED_WAVE=$OURS_WAVE" "$OURS_BIN_DIR/aien-serve-http" ;;
+    *) echo "print mode covers the OURS and vLLM arms" >&2 ;;
+  esac
+  exit 0
+fi
 trap cleanup_session EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 CELLS_COMPLETED=0
 SESSION_RC=1
-case $ARM in
-  SGLANG*) [ -n "$SGLANG_IMG" ] || notrun "no SGLang image verified for aarch64/sm_121 (bench/arms.conf)" ;;
-esac
-case $ARM in
-  VLLM4|SGLANG4) [ -n "$MODEL4" ] && [ -f "$MODEL4/config.json" ] || notrun "no 4-bit checkpoint (bench/arms.conf MODEL4)" ;;
-  LLAMA4) [ -n "$GGUF4" ] && [ -f "$GGUF4" ] || notrun "no 4-bit GGUF (bench/arms.conf GGUF4)" ;;
-esac
-until python3 "$REPO/bench/quiet.py" --window 60 --max-load 6 --exclude-tree $$ >> "$LOGD/quiet.jsonl"; do :; done
+why=$(arm_preconditions) || notrun "$why"
+until python3 "$REPO/bench/quiet.py" --window 60 --max-load 6 --exclude-tree $$ >> "$LOGD/quiet.jsonl"; do
+  [ -z "$DEADLINE" ] || [ "$(date +%s)" -lt $((DEADLINE - 600)) ] || notrun "no quiet 60 s window before deadline - 600 s"
+done
 for pair in LLAMA:convert.log LLAMA16:convert-bf16.log; do  # the GGUF must be fully written
   [ "$ARM" = "${pair%%:*}" ] || continue
   CL=$H2H/gguf/${pair#*:}
@@ -340,7 +489,12 @@ for pair in LLAMA:convert.log LLAMA16:convert-bf16.log; do  # the GGUF must be f
     sleep 30
   done
 done
-if [ "${H2H_GPU_LOCK_FD:-}" = 9 ]; then
+if [ "${AIEN_GB10_LOCK_HELD:-}" = 1 ] || [ -n "${SPARK_WINDOW:-}" ]; then
+  # A10: the runner's spark-window holds /tmp/aien-gb10.lock; waiting on it here would deadlock
+  why=$(window_held) || notrun "in-window lock check failed: $why"
+  GPU_LOCK_RELEASE=0
+  echo "$(ts) in spark-window $SPARK_WINDOW (gb10 exclusive); no flock taken" >> "$LOGD/session.log"
+elif [ "${H2H_GPU_LOCK_FD:-}" = 9 ]; then
   GPU_LOCK_RELEASE=0
   [ "$(readlink /proc/$$/fd/9)" = /tmp/aien-gb10.lock ] || notrun "inherited GPU-lock descriptor names another file"
   flock -n 9 || notrun "inherited GPU-lock descriptor cannot acquire the lock"
@@ -351,14 +505,25 @@ else
 fi
 GPU_LOCK_HELD=1
 SECONDS=0
+LOCK_EPOCH=$(date +%s); STOP_AT=$((LOCK_EPOCH + 3540)); WARN_AT=$((LOCK_EPOCH + 3300)); QUIET_AT=$((LOCK_EPOCH + 3000))
+if [ -n "$DEADLINE" ] && [ $((DEADLINE - 60)) -lt "$STOP_AT" ]; then  # A10 deadline mode
+  STOP_AT=$((DEADLINE - 60)); WARN_AT=$((STOP_AT - 120)); QUIET_AT=$((STOP_AT - 120))
+fi
+echo "lock_epoch $LOCK_EPOCH warn_at $WARN_AT stop_at $STOP_AT quiet_at $QUIET_AT cells $CELLSET" >> "$LOGD/session.log"
 board "START $ARM $ROUND gpu lock held (<=60 min; test port $PORT; live 18091 untouched)"
 echo "kthread_psr_start $(ktpsr)" >> "$LOGD/session.log"
-pick_srv
+pick_srv || notrun "core guard: $(cpu_guard || true)"
 echo "server_cpus $SRV_CPUS client_cpus $CLI_CPUS monitor_cpu $MON_CPU" >> "$LOGD/session.log"
 timeout 5 nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv > "$LOGD/gpu-before.csv" 2>&1 || notrun "GPU process inventory failed"
 GPU_ROWS=$(timeout 5 nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits) || notrun "GPU process inventory failed"
 [ -z "$GPU_ROWS" ] || notrun "another model/process is resident; shared-service window must be coordinated before launch"
 BASE=$(memavail); echo "baseline_memavail_kB $BASE" > "$LOGD/mem-baseline.txt"
+sha256sum "$0" "$REPO/bench/bench.py" "$REPO/bench/arms.conf" "$REPO/bench/session-lifecycle.sh" \
+  "$REPO/prompts/"*.jsonl > "$LOGD/driver-sha256.txt" 2>&1
+case $ARM in
+  OURS) printf 'bin_dir %s\nsha256 %s\nAIEN_OMEGA_FP8_GROUPED_WAVE=%s\n' "$OURS_BIN_DIR" "$OURS_BIN_SHA256" "$OURS_WAVE" > "$LOGD/ours-bin.txt" ;;
+  VLLM*) docker image inspect -f '{{.Id}} {{json .RepoDigests}}' "$VLLM_IMG" > "$LOGD/image.txt" 2>&1 || notrun "vLLM image $VLLM_IMG not present locally" ;;
+esac
 sampler > "$LOGD/mem.tsv" & SAMP=$!
 h2h_track "$SAMP" || exit 1
 vmstat -t 1 > "$LOGD/vmstat.txt" & VMS=$!
@@ -370,25 +535,76 @@ if ready && loopback_only; then
   echo "load_seconds $(echo "$(date +%s.%N) - $T0" | bc)" >> "$LOGD/session.log"
   case $ARM in LLAMA*) LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR "$LLAMA_DIR/llama-server" --version > "$LOGD/version.txt" 2>&1 ;; esac
   [ -n "$CTR" ] && docker exec $CTR pip list 2>/dev/null | grep -i -E '^(vllm|sglang|torch|transformers|flashinfer)' > "$LOGD/version.txt"
-  for c in 1 4 8 16; do
+  EXPECTED_CELLS=0
+  for set in ${CELLSET//,/ }; do
     [ -e "$LOGD/TIMEOUT" ] && break
-    cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3 || break
-  done
-  for p in p256 p2k p8k; do
-    [ "$CELLS_COMPLETED" -ge 4 ] || break
-    [ -e "$LOGD/TIMEOUT" ] && break
-    cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce || break
-  done
-  if [ "$CELLS_COMPLETED" -eq 7 ] && [ ! -e "$LOGD/TIMEOUT" ]; then
-    cell agree 1 128 decode.jsonl --warmup 0 --reps 16 || true
-  fi
-  # A3 grid: N = 1, 8, 32 streams x prompt 512 / 8k tokens, 256 new tokens, 1 warmup + 3 runs
-  for p in p512 p8k; do
-    [ "$CELLS_COMPLETED" -ge 8 ] || break
-    for n in 1 8 32; do
-      [ -e "$LOGD/TIMEOUT" ] && break
-      cell grid-$p-n$n $n 256 prefill.jsonl --select $p --warmup 1 --reps 3 --nonce || break 2
-    done
+    SET0=$CELLS_COMPLETED
+    case $set in
+      full)
+        n=14
+        for c in 1 4 8 16; do
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3 || break
+        done
+        for p in p256 p2k p8k; do
+          [ $((CELLS_COMPLETED - SET0)) -ge 4 ] || break
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce || break
+        done
+        if [ $((CELLS_COMPLETED - SET0)) -eq 7 ] && [ ! -e "$LOGD/TIMEOUT" ]; then
+          cell agree 1 128 decode.jsonl --warmup 0 --reps 16 || true
+        fi
+        # A3 grid: N = 1, 8, 32 streams x prompt 512 / 8k tokens, 256 new tokens, 1 warmup + 3 runs
+        for p in p512 p8k; do
+          [ $((CELLS_COMPLETED - SET0)) -ge 8 ] || break
+          for n2 in 1 8 32; do
+            [ -e "$LOGD/TIMEOUT" ] && break
+            cell grid-$p-n$n2 $n2 256 prefill.jsonl --select $p --warmup 1 --reps 3 --nonce || break 2
+          done
+        done ;;
+      dra74)  # A10: the DRA-74 decode ladder and prefill cells, one arm per chip slice
+        n=7
+        for c in 1 4 8 16; do
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3 || break
+        done
+        for p in p256 p2k p8k; do
+          [ $((CELLS_COMPLETED - SET0)) -ge 4 ] || break
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce || break
+        done ;;
+      nsys-c8)  # A10: one profiled decode-c8 cell; its rows never enter timing results (extract.py)
+        n=1
+        if curl -sf -X POST "http://127.0.0.1:$PORT/start_profile" > /dev/null; then
+          cell decode-c8 8 256 decode.jsonl --warmup 1 --reps 1 || true
+          curl -sf -X POST "http://127.0.0.1:$PORT/stop_profile" > /dev/null || echo "$(ts) stop_profile failed" >> "$LOGD/session.log"
+          last=-1
+          for i in $(seq 1 36); do  # the report is written after the range ends; wait for a stable size
+            sleep 5
+            size=$(cat "$LOGD"/nsys/*.nsys-rep 2>/dev/null | wc -c)
+            [ "$size" -gt 0 ] && [ "$size" = "$last" ] && break
+            last=$size
+          done
+          if [ "$size" -gt 0 ] && [ "$size" = "$last" ]; then echo "nsys_report_bytes $size" >> "$LOGD/session.log"
+          else echo "$(ts) nsys report missing or still growing after 180 s" >> "$LOGD/session.log"; CELLS_COMPLETED=$SET0; fi
+        else
+          echo "$(ts) start_profile failed; no profiled cell" >> "$LOGD/session.log"
+        fi ;;
+      ttft-fresh)  # A10: fresh-prompt TTFT; per-rep nonce, byte-identical requests on every arm
+        n=$(echo ${TTFT_PROMPTS//,/ } | wc -w)
+        for p in ${TTFT_PROMPTS//,/ }; do
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell ttft-fresh-${p#t} 1 1 ttft.jsonl --select $p --ttft fresh --warmup 1 --warm-select t2k \
+            --reps $TTFT_REPS --rep-base $TTFT_REP_BASE || break
+        done ;;
+      ttft-turn2)  # A10: prime the 32k turn, then the conversation + ~1k new tokens; OURS re-reads it
+        n=1
+        case $ARM in OURS) t2=reread ;; *) t2=cached ;; esac
+        cell ttft-turn2-$t2 1 1 ttft.jsonl --select t32k --ttft turn2 --warmup 1 --warm-select t2k \
+          --reps $TTFT_REPS --rep-base $TTFT_REP_BASE ;;
+    esac
+    EXPECTED_CELLS=$((EXPECTED_CELLS + n))
+    [ $((CELLS_COMPLETED - SET0)) -eq "$n" ] || break  # a short cell set ends the session INCOMPLETE
   done
   board "$ARM $ROUND cells done at $SECONDS s"
   if mark_complete; then SESSION_RC=0; fi
