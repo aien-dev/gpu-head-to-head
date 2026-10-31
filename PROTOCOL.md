@@ -291,3 +291,79 @@ on this one Spark, on the stated date and load.
   numbers is mixed into it. No `HeadToHead: ... FINAL IDLE` line (A5(h)) is on the BOARD as of
   2026-10-29 22:15Z; the study takes `/tmp/aien-gb10.lock` only inside its own spark-window, under
   Drake's GPU authorization for this lane given on 2026-10-29.
+
+
+### A8 (2026-10-29, before resumed 35B timing): external measurement integrity
+
+Numbered A8 and A9 because A6 is the llama.cpp methodology amendment on branch
+`results/2026-10-27-a6` and A7 is the cold-start study above.
+
+Drake clarified that Aien architecture and structural implementation stay Python-free, while
+external testing equipment, independent references and calculations may use Python, with Wolfram
+preferred for calculations. These host measurement tools are external equipment; this amendment
+introduces no Python production dependency.
+
+The legacy 35B runner could return success after a failed client, a missing foreign-process
+monitor summary, an exhausted disturbed-cell retry, or a session timeout. Its Python client also
+returned zero after failed HTTP requests and accepted truncated streams. Synthetic regressions
+reproduced these paths before the fixes. New resumed runs use the following controls:
+
+- The client retains failed raw rows, requires content, a finish reason and the SSE DONE marker,
+  and returns nonzero if any request fails. Missing usage remains eligible for the original
+  separately labeled retokenization path; it is not invented by the client.
+- No quiet gate means NOT_RUN. A monitor must exit 0 or 1 and provide exactly one summary with a
+  positive elapsed-tick count; missing or invalid kthread samples also mean NOT_RUN. Named
+  interference keeps the existing VOID rule and three-attempt limit.
+- Every attempted cell records PASS, FAIL, NOT_RUN or VOID in `results/cell-status.jsonl`.
+  When that ledger exists, `bench/extract.py` admits only cell ids with exactly one PASS record.
+  Missing, duplicate or conflicting records exclude a cell. Historical runs without this ledger
+  retain the legacy extraction behavior and are not retrospectively qualified by this fix.
+- DONE requires all fourteen declared cells accepted and no TIMEOUT. An incomplete session returns
+  nonzero and retains its rows and logs. Existing session files are refused rather than overwritten.
+  `H2H_RESULTS` selects a fresh results directory while leaving the frozen instruments and prompts
+  at `H2H_REPO`; for extraction, supply a parent directory containing that `results/` directory.
+
+CPU-only controls: `python3 bench/test-run-arm.py`, `python3 bench/test-bench-python.py`, and
+`python3 bench/test-extract-admission.py`; shell syntax: `bash -n bench/run_arm.sh`.
+This fixes acceptance/reporting defects only. The runner's shared-model coordination, lifecycle,
+current source/weight verification and resumed 35B execution still require qualification before
+use. The active 9B campaign uses frozen instruments recorded in its own manifest and is unchanged.
+
+
+### A9 (2026-10-29, before resumed 35B timing): owned-process lifecycle
+
+The external runner now sources `bench/session-lifecycle.sh`. It tracks child process identities
+using Linux `/proc/<pid>/stat` starttime, rechecks identity before signaling, snapshots descendants,
+waits for children, and refuses untracked or stale live process identities. A pid whose `/proc`
+entry is already gone was reaped by the shell and is not waited for again: Bash 5.2 `wait` on it
+from the EXIT trap that interrupted the client wait (the watchdog's TERM) blocked forever. It no
+longer searches process command lines to decide which server to stop or count for memory. Native
+server identity is published to the sampler because a sampler started before launch cannot see
+later shell-variable updates; container memory sampling includes the owned container root and
+descendants.
+
+Each container has a unique session name and `aien.stack-comparison.run` ownership label. Creation
+completes before `docker start --attach`; missing images are refused with `--pull never`. Shutdown
+checks the label before stopping a container. The historical shared container names are unused.
+
+EXIT, INT and TERM enter one cleanup path for the client, monitor, server, watchdog and samplers.
+The client runs as a tracked child so the parent can interrupt its wait. The watchdog warns at
+55 minutes from GPU-lock acquisition and ends request execution at 59 minutes, reserving the last
+minute of the original 60-minute limit for cleanup. Cleanup gives process waits a shared 30-second
+budget, bounds container stop and GPU inventory commands, and removes DONE on failure. These are
+host-exercised controls; an actual model/session and unload-baseline qualification remain required.
+
+Before model launch, the GPU inventory must be empty. The runner itself never stops the shared
+18091 model; the authorized exclusive-window controller must check activity, stop it only when
+idle, and restore its exact configuration afterward. `H2H_GPU_LOCK_FD=9` permits that controller
+to lend the already-open GPU-lock descriptor. The runner checks its path and acquires it
+nonblockingly; cleanup preserves a borrowed lock so the controller can retain exclusivity through
+restoration. A standalone runner releases only its own lock.
+
+CPU-only controls: `python3 bench/test-run-arm-lifecycle.py`, plus the A8 controls. Tests cover
+foreign container refusal, labeled owned launch, create failure, normal/failing/interrupted exits,
+watchdog interruption, stale/untracked process refusal, descendant shutdown, termination-resistant
+children, sampler identity and parent-versus-child lock ownership. No GPU, real model or real
+container is used by these controls. The active frozen 9B campaign is unchanged. Source and runtime
+pins, the shared-service controller, unload/memory evidence and full 35B execution remain separate
+requirements before this runner is used for the larger-model comparison.

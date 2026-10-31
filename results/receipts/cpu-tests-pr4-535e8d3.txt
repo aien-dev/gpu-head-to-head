@@ -1,0 +1,11 @@
+gpu-head-to-head PR #4 CPU-only test receipt
+head 535e8d37855d99f8f2f53a522c1eda74cc8813e6 (bench/ tree e977a0209a0c6dd376497cb922b53f7a3a3ded19)
+host: DGX Spark CPU, Python 3.12.3, 2026-10-31T02:12:34Z, no GPU, no model loaded
+python3 bench/test-bench-python.py -> exit 0, Ran 9 tests, last line: OK
+python3 bench/test-extract-admission.py -> exit 0, Ran 4 tests, last line: OK
+python3 bench/test-run-arm-lifecycle.py -> exit 0, Ran 16 tests, last line: OK
+python3 bench/test-run-arm.py -> exit 0, Ran 13 tests, last line: OK
+python3 bench/test-shared-model-guard.py -> exit 0, Ran 14 tests, last line: OK
+python3 bench/test-shared-window.py -> exit 0, Ran 18 tests, last line: OK
+python3 bench/test-unload-gates.py -> exit 0, Ran 9 tests, last line: OK
+NOT_RUN: shared-model restoration on a live server; hardware comparisons
