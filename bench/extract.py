@@ -47,7 +47,9 @@ for r in raw:
 rows = []
 for r in raw:
     cr = r.get("cell_run")
-    if r["warmup"] or r["arm"] == "STUB" or cr in void or (admission is not None and admission.get(cr) != "PASS"):
+    # A10: rows of a profiled arm (*_NSYS) carry tracer overhead and never enter timing results
+    if (r["warmup"] or r["arm"] == "STUB" or r["arm"].endswith("_NSYS") or cr in void
+            or (admission is not None and admission.get(cr) != "PASS")):
         continue
     if cr:
         cell, _, n = cr.rpartition("-t")
