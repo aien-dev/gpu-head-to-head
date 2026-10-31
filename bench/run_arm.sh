@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# One arm session of the head-to-head (PROTOCOL.md sections 6-8, amendments A1-A3).
-# usage: bench/run_arm.sh OURS|VLLM|SGLANG|LLAMA|LLAMA16|VLLM4|SGLANG4|LLAMA4 R1|R2
-# Holds /tmp/aien-gb10.lock for the whole session (at most 60 min), writes BOARD lines,
-# starts exactly one server, runs every cell, stops the server and checks the unload.
+# One arm session of the head-to-head (PROTOCOL.md sections 6-8, amendments A1-A10).
+# usage: bench/run_arm.sh OURS|VLLM|SGLANG|LLAMA|LLAMA16|VLLM4|SGLANG4|LLAMA4|VLLM_<conf arm> ROUND
+# VLLM_<conf arm>: any arm declared in bench/arms.conf (ARM_MODEL[...]), PROTOCOL A10.
+# Holds the GB10 lock for the whole session (at most 60 min; less with H2H_DEADLINE_EPOCH), or runs
+# inside the caller's exclusive spark-window (A10), writes BOARD lines, starts exactly one server,
+# runs the declared cell set (H2H_CELLS), stops the server and checks the unload.
 # Ends with results/logs/<ARM>-<ROUND>/DONE, or NOT_RUN (with the reason) if the arm cannot start.
+# H2H_PRINT_LAUNCH=1 prints the server launch argv (one item per line) and exits with no side effect.
 set -u
 ARM=$1; ROUND=$2
 REPO=${H2H_REPO:-$(cd "$(dirname "$0")/.." && pwd)}
@@ -18,14 +21,22 @@ GGUF=$H2H/gguf/q36-35b-a3b-q8_0.gguf
 GGUF16=$H2H/gguf/q36-35b-a3b-bf16.gguf
 # A3 arms: SGLANG_IMG (image@digest), MODEL4 (vLLM/SGLang 4-bit checkpoint dir), GGUF4 (llama.cpp
 # 4-bit GGUF) are set in bench/arms.conf once verified; unset -> the arm is recorded NOT_RUN.
+# A10: bench/arms.conf also declares the per-arm vLLM hooks (ARM_* arrays) and the OURS binary.
 SGLANG_IMG=; MODEL4=; GGUF4=
+declare -A ARM_MODEL=() ARM_IMG=() ARM_UTIL=() ARM_QUANT=() ARM_KV=() ARM_ATTN=() ARM_MOE=() \
+  ARM_SPEC=() ARM_PREFIX=() ARM_PROFILE=()
+OURS_BIN_DIR=${OURS_BIN_DIR:-/home/drakestapleton/.local/state/aien-q36/bin-19173f9e}
+OURS_BIN_SHA256=${OURS_BIN_SHA256:-19173f9ec3b609fe79af644f84741d8808b92ea8eb3ecec4bc945af6f22b3aeb}
+NSYS_DIR=/opt/nvidia/nsight-systems/2025.3.2
 [ -f "$REPO/bench/arms.conf" ] && . "$REPO/bench/arms.conf"
-BOARD=/home/drakestapleton/handoffs/BOARD.md
+BOARD=${H2H_BOARD:-/home/drakestapleton/handoffs/BOARD.md}
 VLLM_UTIL=${VLLM_UTIL:-0.50}
 SGLANG_MEM=${SGLANG_MEM:-0.50}
 RESULTS=${H2H_RESULTS:-$REPO/results}
 OUT=$RESULTS/raw/$ARM-$ROUND.jsonl
 LOGD=$RESULTS/logs/$ARM-$ROUND
+DEADLINE=${H2H_DEADLINE_EPOCH:-}   # A10: absolute epoch by which the whole session must have stopped
+CELLSET=${H2H_CELLS:-full}         # A10: full (14 cells, A3) | dra74 (7) | nsys-c8 (1)
 if [ -e "$OUT" ] || [ -e "$LOGD" ]; then
   echo "refusing to overwrite an existing session: $LOGD or $OUT" >&2
   exit 2
@@ -46,25 +57,57 @@ case $ARM in
   LLAMA)   PORT=18192; PAT='llama-server.*--port 18192'; MID=q36; G=$GGUF; MMAP= ;;
   LLAMA16) PORT=18193; PAT='llama-server.*--port 18193'; MID=q36; G=$GGUF16; MMAP=--no-mmap ;;
   LLAMA4)  PORT=18192; PAT='llama-server.*--port 18192'; MID=q36; G=$GGUF4; MMAP= ;;
+  VLLM_*)
+    [ -n "${ARM_MODEL[$ARM]:-}" ] || { echo "bad arm: $ARM is not declared in bench/arms.conf"; exit 2; }
+    PORT=18191; PAT='vllm serve|VLLM::|EngineCore'; MID=q36; CTR=stack-h2h-$RUN_ID; MDIR=${ARM_MODEL[$ARM]}
+    VLLM_IMG=${ARM_IMG[$ARM]:-$VLLM_IMG}; VLLM_UTIL=${ARM_UTIL[$ARM]:-$VLLM_UTIL} ;;
   *) echo "bad arm"; exit 2 ;;
 esac
 
 # A2: cpus 5-9,15-19 are Cortex-X925 (CPU part 0xd85), 0-4,10-14 Cortex-A725 (0xd87).
-# Every server gets 9 of the 10 X925 cores; the client runs on two A725 cores.
-# A4(e): the excluded X925 core is the one the nvidia-modeset kthread is on when the session takes
-# the GPU lock (core 18 if it is on an A725 core), chosen by pick_srv before the server starts.
+# A10 (supersedes A4(e)): the server gets the X925 cores minus core 17, minus the client and monitor
+# cores, minus the core the nvidia-modeset kthread is on when the session takes the GPU lock (core 18
+# when that core is on an A725 core or already excluded, so the count is constant). Default client
+# 0-1 and monitor 2 leave 8 server cores; the DRA-74 slices put the client on X925 core 5 at nice 19.
 X925=" 5 6 7 8 9 15 16 17 18 19 "
+cpus_expand() {  # "0-1,5" -> " 0 1 5 "
+  local IFS=, p out=" "
+  for p in $1; do
+    if [[ "$p" =~ ^([0-9]+)-([0-9]+)$ ]]; then out="$out$(seq -s ' ' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}") "
+    elif [[ "$p" =~ ^[0-9]+$ ]]; then out="$out$p "
+    else return 1; fi
+  done
+  echo "$out"
+}
+cpu_guard() {  # A10: fail closed unless the client and monitor cores are valid and disjoint
+  local cli c
+  cli=$(cpus_expand "$CLI_CPUS") && [ "$cli" != " " ] || { echo "client cpu list '$CLI_CPUS' is invalid"; return 1; }
+  [[ "$MON_CPU" =~ ^[0-9]+$ ]] || { echo "MON_CPU '$MON_CPU' must be one core number"; return 1; }
+  for c in $cli $MON_CPU; do
+    [ "$c" -le 19 ] || { echo "core $c does not exist"; return 1; }
+    [ "$c" -lt 10 ] || [ "$c" -gt 14 ] || { echo "core $c is in the 10-14 build set other lanes use"; return 1; }
+    [ "$c" != 17 ] || { echo "core 17 is excluded from every session role"; return 1; }
+  done
+  case $cli in *" $MON_CPU "*) echo "MON_CPU $MON_CPU overlaps the client cores $CLI_CPUS"; return 1 ;; esac
+  [[ "$CLI_NICE" =~ ^[0-9]+$ ]] && [ "$CLI_NICE" -le 19 ] || { echo "client nice '$CLI_NICE' must be 0-19"; return 1; }
+}
 pick_srv() {
-  local k=$(ktpsr) c
+  local k=$(ktpsr) c excl
+  cpu_guard >/dev/null || return 1
+  excl=" 17$(cpus_expand "$CLI_CPUS")$MON_CPU "
   case $X925 in *" $k "*) ;; *) k=18 ;; esac
-  SRV_LIST=" "; for c in $X925; do [ "$c" = "$k" ] || SRV_LIST="$SRV_LIST$c "; done
+  case $excl in *" $k "*) k=18 ;; esac
+  excl="$excl$k "
+  SRV_LIST=" "; for c in $X925; do case $excl in *" $c "*) ;; *) SRV_LIST="$SRV_LIST$c " ;; esac; done
+  case $SRV_LIST in *" 17 "*|*" $MON_CPU "*|" ") return 1 ;; esac
   SRV_CPUS=$(echo $SRV_LIST | tr ' ' ',')
   export H2H_SRV_CPUS=$SRV_CPUS
 }
-SRV_CPUS=5-9,15-17,19
-SRV_LIST=" 5 6 7 8 9 15 16 17 19 "
-CLI_CPUS=0-1   # A5(d): A725 cores outside the 10-14 build set other lanes use
-MON_CPU=2      # coremon.py (A4), an A725 core outside the server and client sets
+SRV_CPUS=5-9,15-16,18-19
+SRV_LIST=" 5 6 7 8 9 15 16 18 19 "
+CLI_CPUS=${H2H_CLIENT_CPUS:-0-1}   # A5(d): A725 cores outside the 10-14 build set; A10: slices use 5
+CLI_NICE=${H2H_CLIENT_NICE:-0}     # A10: slices run the client at nice 19
+MON_CPU=${H2H_MON_CPU:-2}          # coremon.py (A4), outside the server and client sets (cpu_guard)
 export H2H_SRV_CPUS=$SRV_CPUS H2H_CLI_CPUS=$CLI_CPUS
 KT=1671   # nvidia-modeset kthread; never reniced or pinned during the study (A2)
 ktpsr() { awk '{print $39}' /proc/$KT/stat 2>/dev/null || echo NA; }
@@ -353,7 +396,7 @@ GPU_LOCK_HELD=1
 SECONDS=0
 board "START $ARM $ROUND gpu lock held (<=60 min; test port $PORT; live 18091 untouched)"
 echo "kthread_psr_start $(ktpsr)" >> "$LOGD/session.log"
-pick_srv
+pick_srv || notrun "core guard: $(cpu_guard || true)"
 echo "server_cpus $SRV_CPUS client_cpus $CLI_CPUS monitor_cpu $MON_CPU" >> "$LOGD/session.log"
 timeout 5 nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv > "$LOGD/gpu-before.csv" 2>&1 || notrun "GPU process inventory failed"
 GPU_ROWS=$(timeout 5 nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits) || notrun "GPU process inventory failed"
