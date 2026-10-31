@@ -4,7 +4,7 @@
 # VLLM_<conf arm>: any arm declared in bench/arms.conf (ARM_MODEL[...]), PROTOCOL A10.
 # Holds the GB10 lock for the whole session (at most 60 min; less with H2H_DEADLINE_EPOCH), or runs
 # inside the caller's exclusive spark-window (A10), writes BOARD lines, starts exactly one server,
-# runs the declared cell set (H2H_CELLS), stops the server and checks the unload.
+# runs the declared cell sets (H2H_CELLS, comma list), stops the server and checks the unload.
 # Ends with results/logs/<ARM>-<ROUND>/DONE, or NOT_RUN (with the reason) if the arm cannot start.
 # H2H_PRINT_LAUNCH=1 prints the server launch argv (one item per line) and exits with no side effect.
 set -u
@@ -37,7 +37,12 @@ RESULTS=${H2H_RESULTS:-$REPO/results}
 OUT=$RESULTS/raw/$ARM-$ROUND.jsonl
 LOGD=$RESULTS/logs/$ARM-$ROUND
 DEADLINE=${H2H_DEADLINE_EPOCH:-}   # A10: absolute epoch by which the whole session must have stopped
-CELLSET=${H2H_CELLS:-full}         # A10: full (14 cells, A3) | dra74 (7) | nsys-c8 (1)
+CELLSET=${H2H_CELLS:-full}         # A10: comma list of full (14 cells, A3) | dra74 (7) | nsys-c8 (1)
+                                   #      | ttft-fresh (1 per H2H_TTFT_PROMPTS item) | ttft-turn2 (1)
+TTFT_PROMPTS=${H2H_TTFT_PROMPTS:-t2k,t8k,t32k}  # A10: ttft-fresh prompts, in order
+TTFT_REPS=${H2H_TTFT_REPS:-3}; TTFT_REP_BASE=${H2H_TTFT_REP_BASE:-0}  # A10: reps split across slices
+PREFIX_OVERRIDE=${H2H_PREFIX:-}    # A10: "on" enables vLLM prefix caching for a ttft-turn2-only session
+[ "$PREFIX_OVERRIDE" = on ] && ARM_PREFIX[$ARM]=on  # validated in arm_preconditions before any launch
 if [ "${H2H_PRINT_LAUNCH:-0}" != 1 ]; then
   if [ -e "$OUT" ] || [ -e "$LOGD" ]; then
     echo "refusing to overwrite an existing session: $LOGD or $OUT" >&2
@@ -272,12 +277,39 @@ arm_preconditions() {  # prints the NOT_RUN reason and returns 1; no side effect
     [[ "$DEADLINE" =~ ^[0-9]+$ ]] && [ "$DEADLINE" -gt $(( $(date +%s) + 600 )) ] \
       || { echo "H2H_DEADLINE_EPOCH '$DEADLINE' must be an epoch more than 600 s ahead"; return 1; }
   fi
-  case $CELLSET in
-    full|dra74) [ "${ARM_PROFILE[$ARM]:-}" = "" ] || { echo "$ARM is a profiling arm; it runs only cell set nsys-c8"; return 1; } ;;
-    nsys-c8) [ "${ARM_PROFILE[$ARM]:-}" = nsys ] && [ -x "$NSYS_DIR/bin/nsys" ] \
-      || { echo "cell set nsys-c8 needs an ARM_PROFILE=nsys arm and $NSYS_DIR/bin/nsys"; return 1; } ;;
-    *) echo "H2H_CELLS '$CELLSET' must be full, dra74 or nsys-c8"; return 1 ;;
-  esac
+  if [ -n "$PREFIX_OVERRIDE" ]; then
+    [ "$PREFIX_OVERRIDE" = on ] && [[ $ARM == VLLM_* ]] && [ "$CELLSET" = ttft-turn2 ] \
+      || { echo "H2H_PREFIX=on applies only to a VLLM_* arm running H2H_CELLS=ttft-turn2 alone"; return 1; }
+  fi
+  [[ "$TTFT_REPS" =~ ^[1-9]$ && "$TTFT_REP_BASE" =~ ^[0-9]{1,2}$ ]] \
+    || { echo "H2H_TTFT_REPS must be 1-9 and H2H_TTFT_REP_BASE 0-99"; return 1; }
+  local set seen=,
+  for set in ${CELLSET//,/ }; do
+    [[ $seen != *",$set,"* ]] || { echo "H2H_CELLS '$CELLSET' names $set twice"; return 1; }
+    seen=$seen$set,
+    case $set in
+      full|dra74) [ "${ARM_PROFILE[$ARM]:-}" = "" ] || { echo "$ARM is a profiling arm; it runs only cell set nsys-c8"; return 1; } ;;
+      nsys-c8) [ "${ARM_PROFILE[$ARM]:-}" = nsys ] && [ -x "$NSYS_DIR/bin/nsys" ] \
+        || { echo "cell set nsys-c8 needs an ARM_PROFILE=nsys arm and $NSYS_DIR/bin/nsys"; return 1; }
+        [ "$CELLSET" = nsys-c8 ] || { echo "cell set nsys-c8 runs alone"; return 1; } ;;
+      ttft-fresh|ttft-turn2)
+        [[ $ARM == OURS || $ARM == VLLM_* ]] && [ "${ARM_PROFILE[$ARM]:-}" = "" ] \
+          || { echo "TTFT cell sets run on OURS and unprofiled VLLM_* arms only"; return 1; } ;;&
+      ttft-fresh)
+        [ "${ARM_PREFIX[$ARM]:-}" != on ] || { echo "ttft-fresh needs prefix caching off"; return 1; }
+        local p pseen=,
+        for p in ${TTFT_PROMPTS//,/ }; do
+          [[ $p =~ ^t(2|8|32)k$ && $pseen != *",$p,"* ]] || { echo "H2H_TTFT_PROMPTS '$TTFT_PROMPTS' must list distinct t2k, t8k, t32k"; return 1; }
+          pseen=$pseen$p,
+        done
+        [ "$pseen" != , ] || { echo "H2H_TTFT_PROMPTS is empty"; return 1; } ;;
+      ttft-turn2)
+        [[ $ARM != VLLM_* ]] || [ "$PREFIX_OVERRIDE" = on ] \
+          || { echo "ttft-turn2 on a vLLM arm needs H2H_PREFIX=on (the cached row)"; return 1; } ;;
+      *) echo "H2H_CELLS '$CELLSET': each item must be full, dra74, nsys-c8, ttft-fresh or ttft-turn2"; return 1 ;;
+    esac
+  done
+  [ "$seen" != , ] || { echo "H2H_CELLS is empty"; return 1; }
 }
 
 cell_status() {
@@ -486,7 +518,8 @@ timeout 5 nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv > "$
 GPU_ROWS=$(timeout 5 nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits) || notrun "GPU process inventory failed"
 [ -z "$GPU_ROWS" ] || notrun "another model/process is resident; shared-service window must be coordinated before launch"
 BASE=$(memavail); echo "baseline_memavail_kB $BASE" > "$LOGD/mem-baseline.txt"
-sha256sum "$0" "$REPO/bench/bench.py" "$REPO/bench/arms.conf" "$REPO/bench/session-lifecycle.sh" > "$LOGD/driver-sha256.txt" 2>&1
+sha256sum "$0" "$REPO/bench/bench.py" "$REPO/bench/arms.conf" "$REPO/bench/session-lifecycle.sh" \
+  "$REPO/prompts/"*.jsonl > "$LOGD/driver-sha256.txt" 2>&1
 case $ARM in
   OURS) printf 'bin_dir %s\nsha256 %s\nAIEN_OMEGA_FP8_GROUPED_WAVE=%s\n' "$OURS_BIN_DIR" "$OURS_BIN_SHA256" "$OURS_WAVE" > "$LOGD/ours-bin.txt" ;;
   VLLM*) docker image inspect -f '{{.Id}} {{json .RepoDigests}}' "$VLLM_IMG" > "$LOGD/image.txt" 2>&1 || notrun "vLLM image $VLLM_IMG not present locally" ;;
@@ -502,58 +535,79 @@ if ready && loopback_only; then
   echo "load_seconds $(echo "$(date +%s.%N) - $T0" | bc)" >> "$LOGD/session.log"
   case $ARM in LLAMA*) LD_LIBRARY_PATH=$CUDART_DIR:$LLAMA_DIR "$LLAMA_DIR/llama-server" --version > "$LOGD/version.txt" 2>&1 ;; esac
   [ -n "$CTR" ] && docker exec $CTR pip list 2>/dev/null | grep -i -E '^(vllm|sglang|torch|transformers|flashinfer)' > "$LOGD/version.txt"
-  case $CELLSET in
-    full)
-      EXPECTED_CELLS=14
-      for c in 1 4 8 16; do
-        [ -e "$LOGD/TIMEOUT" ] && break
-        cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3 || break
-      done
-      for p in p256 p2k p8k; do
-        [ "$CELLS_COMPLETED" -ge 4 ] || break
-        [ -e "$LOGD/TIMEOUT" ] && break
-        cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce || break
-      done
-      if [ "$CELLS_COMPLETED" -eq 7 ] && [ ! -e "$LOGD/TIMEOUT" ]; then
-        cell agree 1 128 decode.jsonl --warmup 0 --reps 16 || true
-      fi
-      # A3 grid: N = 1, 8, 32 streams x prompt 512 / 8k tokens, 256 new tokens, 1 warmup + 3 runs
-      for p in p512 p8k; do
-        [ "$CELLS_COMPLETED" -ge 8 ] || break
-        for n in 1 8 32; do
+  EXPECTED_CELLS=0
+  for set in ${CELLSET//,/ }; do
+    [ -e "$LOGD/TIMEOUT" ] && break
+    SET0=$CELLS_COMPLETED
+    case $set in
+      full)
+        n=14
+        for c in 1 4 8 16; do
           [ -e "$LOGD/TIMEOUT" ] && break
-          cell grid-$p-n$n $n 256 prefill.jsonl --select $p --warmup 1 --reps 3 --nonce || break 2
+          cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3 || break
         done
-      done ;;
-    dra74)  # A10: the DRA-74 decode ladder and prefill cells, one arm per chip slice
-      EXPECTED_CELLS=7
-      for c in 1 4 8 16; do
-        [ -e "$LOGD/TIMEOUT" ] && break
-        cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3 || break
-      done
-      for p in p256 p2k p8k; do
-        [ "$CELLS_COMPLETED" -ge 4 ] || break
-        [ -e "$LOGD/TIMEOUT" ] && break
-        cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce || break
-      done ;;
-    nsys-c8)  # A10: one profiled decode-c8 cell; its rows never enter timing results (extract.py)
-      EXPECTED_CELLS=1
-      if curl -sf -X POST "http://127.0.0.1:$PORT/start_profile" > /dev/null; then
-        cell decode-c8 8 256 decode.jsonl --warmup 1 --reps 1 || true
-        curl -sf -X POST "http://127.0.0.1:$PORT/stop_profile" > /dev/null || echo "$(ts) stop_profile failed" >> "$LOGD/session.log"
-        last=-1
-        for i in $(seq 1 36); do  # the report is written after the range ends; wait for a stable size
-          sleep 5
-          size=$(cat "$LOGD"/nsys/*.nsys-rep 2>/dev/null | wc -c)
-          [ "$size" -gt 0 ] && [ "$size" = "$last" ] && break
-          last=$size
+        for p in p256 p2k p8k; do
+          [ $((CELLS_COMPLETED - SET0)) -ge 4 ] || break
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce || break
         done
-        if [ "$size" -gt 0 ] && [ "$size" = "$last" ]; then echo "nsys_report_bytes $size" >> "$LOGD/session.log"
-        else echo "$(ts) nsys report missing or still growing after 180 s" >> "$LOGD/session.log"; CELLS_COMPLETED=0; fi
-      else
-        echo "$(ts) start_profile failed; no profiled cell" >> "$LOGD/session.log"
-      fi ;;
-  esac
+        if [ $((CELLS_COMPLETED - SET0)) -eq 7 ] && [ ! -e "$LOGD/TIMEOUT" ]; then
+          cell agree 1 128 decode.jsonl --warmup 0 --reps 16 || true
+        fi
+        # A3 grid: N = 1, 8, 32 streams x prompt 512 / 8k tokens, 256 new tokens, 1 warmup + 3 runs
+        for p in p512 p8k; do
+          [ $((CELLS_COMPLETED - SET0)) -ge 8 ] || break
+          for n2 in 1 8 32; do
+            [ -e "$LOGD/TIMEOUT" ] && break
+            cell grid-$p-n$n2 $n2 256 prefill.jsonl --select $p --warmup 1 --reps 3 --nonce || break 2
+          done
+        done ;;
+      dra74)  # A10: the DRA-74 decode ladder and prefill cells, one arm per chip slice
+        n=7
+        for c in 1 4 8 16; do
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell decode-c$c $c 256 decode.jsonl --warmup 2 --reps 3 || break
+        done
+        for p in p256 p2k p8k; do
+          [ $((CELLS_COMPLETED - SET0)) -ge 4 ] || break
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell prefill-$p 1 1 prefill.jsonl --select $p --warmup 2 --reps 3 --nonce || break
+        done ;;
+      nsys-c8)  # A10: one profiled decode-c8 cell; its rows never enter timing results (extract.py)
+        n=1
+        if curl -sf -X POST "http://127.0.0.1:$PORT/start_profile" > /dev/null; then
+          cell decode-c8 8 256 decode.jsonl --warmup 1 --reps 1 || true
+          curl -sf -X POST "http://127.0.0.1:$PORT/stop_profile" > /dev/null || echo "$(ts) stop_profile failed" >> "$LOGD/session.log"
+          last=-1
+          for i in $(seq 1 36); do  # the report is written after the range ends; wait for a stable size
+            sleep 5
+            size=$(cat "$LOGD"/nsys/*.nsys-rep 2>/dev/null | wc -c)
+            [ "$size" -gt 0 ] && [ "$size" = "$last" ] && break
+            last=$size
+          done
+          if [ "$size" -gt 0 ] && [ "$size" = "$last" ]; then echo "nsys_report_bytes $size" >> "$LOGD/session.log"
+          else echo "$(ts) nsys report missing or still growing after 180 s" >> "$LOGD/session.log"; CELLS_COMPLETED=$SET0; fi
+        else
+          echo "$(ts) start_profile failed; no profiled cell" >> "$LOGD/session.log"
+        fi ;;
+      ttft-fresh)  # A10: fresh-prompt TTFT; per-rep nonce, byte-identical requests on every arm
+        n=$(echo ${TTFT_PROMPTS//,/ } | wc -w)
+        for p in ${TTFT_PROMPTS//,/ }; do
+          [ -e "$LOGD/TIMEOUT" ] && break
+          cell ttft-fresh-${p#t} 1 1 ttft.jsonl --select $p --ttft fresh --warmup 1 --warm-select t2k \
+            --reps $TTFT_REPS --rep-base $TTFT_REP_BASE || break
+        done ;;
+      ttft-turn2)  # A10: prime the 32k turn, then the conversation + ~1k new tokens; OURS re-reads it
+        n=1
+        case $ARM in OURS) t2=reread ;; *) t2=cached ;; esac
+        cell ttft-turn2-$t2 1 1 ttft.jsonl --select t32k --ttft turn2 --warmup 1 --warm-select t2k \
+          --reps $TTFT_REPS --rep-base $TTFT_REP_BASE ;;
+    esac
+    EXPECTED_CELLS=$((EXPECTED_CELLS + n))
+    [ $((CELLS_COMPLETED - SET0)) -eq "$n" ] || break  # a short cell set ends the session INCOMPLETE
+  done
+  board "$ARM $ROUND cells done at $SECONDS s"
+  if mark_complete; then SESSION_RC=0; fi
 else
   if [ -s "$LOGD/listen.txt" ]; then why="FAIL: listener on port $PORT is not loopback-only (listen.txt); server stopped"
   else why="server did not become ready (see results/logs/$ARM-$ROUND/server.log)"; fi

@@ -7,6 +7,7 @@ One JSON row per request is appended to --out. Nothing is aggregated here; aggre
 Wolfram (see PROTOCOL.md section 7) so that the raw rows stay the evidence.
 """
 import argparse
+import hashlib
 import http.client
 import json
 import os
@@ -21,10 +22,10 @@ def load1():
         return float(f.read().split()[0])
 
 
-def one_request(host, port, model, prompt, max_tokens, timeout=1800):
+def one_request(host, port, model, prompt, max_tokens, timeout=1800, messages=None):
     body = {
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages if messages is not None else [{"role": "user", "content": prompt}],
         "stream": True,
         "stream_options": {"include_usage": True},
         "temperature": 0,
@@ -107,6 +108,83 @@ def one_request(host, port, model, prompt, max_tokens, timeout=1800):
     return row
 
 
+# PROTOCOL A10 TTFT rows. The nonce depends only on the prompt id, the repetition and whether the
+# request is a warmup, never on the arm or the clock: every arm receives byte-identical requests,
+# and no prefix cache can carry one repetition into the next.
+NONCE_LINE = "Request id %s. Ignore this line.\n"
+
+
+def ttft_nonce(prompt_id, rep, warm):
+    key = "h2h-ttft|%s|%s%d" % (prompt_id, "w" if warm else "r", rep)
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def ttft_requests(kind, byid, prompt_id, nonce):
+    """[(phase, messages)] for one repetition: fresh -> one request; turn2 -> prime, then turn 2."""
+    first = {"role": "user", "content": NONCE_LINE % nonce + byid[prompt_id]["text"]}
+    if kind == "fresh":
+        return [("fresh", [first])]
+    full = [dict(first), {"role": "assistant", "content": byid["turn2-assistant"]["text"]},
+            {"role": "user", "content": byid["turn2-new"]["text"]}]
+    return [("prime", [first]), ("turn2", full)]
+
+
+def messages_sha256(messages):
+    return hashlib.sha256(json.dumps(messages, sort_keys=True).encode()).hexdigest()
+
+
+def prefix_cache_lines(host, port):
+    """vLLM /metrics prefix-cache counter lines (raw text; deltas are taken in Wolfram)."""
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=10)
+        conn.request("GET", "/metrics")
+        resp = conn.getresponse()
+        text = resp.read().decode(errors="replace")
+        conn.close()
+        if resp.status != 200:
+            return {"error": "HTTP %d" % resp.status}
+        return {"lines": [l for l in text.splitlines() if "prefix_cache" in l and not l.startswith("#")]}
+    except Exception as e:  # recorded, never hidden
+        return {"error": repr(e)}
+
+
+def run_ttft(args, byid, f):
+    """One request at a time; rows carry phase, nonce and the sha256 of the exact message list."""
+    failed = False
+    for k in range(args.warmup + args.reps):
+        warm = k < args.warmup
+        rep = args.rep_base + (k if warm else k - args.warmup)
+        # a warmup may use a cheaper prompt (--warm-select) and is always a single fresh request
+        pid = (args.warm_select or args.select) if warm else args.select
+        nonce = ttft_nonce(pid, rep, warm)
+        for phase, messages in ttft_requests("fresh" if warm else args.ttft, byid, pid, nonce):
+            before = prefix_cache_lines(args.host, args.port) if args.ttft == "turn2" else None
+            l1 = load1()
+            ts = time.time()
+            r = one_request(args.host, args.port, args.model, None, args.max_tokens, messages=messages)
+            r.update({"arm": args.arm, "round": args.round,
+                      "metric": args.metric + ("-prime" if phase == "prime" else ""), "rep": rep,
+                      "warmup": warm, "concurrency": 1, "stream_index": 0,
+                      "batch_id": uuid.uuid4().hex[:12], "load1_start": l1, "load1_end": load1(),
+                      "wall_utc": ts, "max_tokens": args.max_tokens, "prompt_id": pid,
+                      "cell_run": args.cell_run, "ttft_phase": phase, "nonce": nonce,
+                      "messages_sha256": messages_sha256(messages),
+                      "prefix_sha256": messages_sha256(messages[:1]),
+                      "server_cpus": os.environ.get("H2H_SRV_CPUS"),
+                      "client_cpus": os.environ.get("H2H_CLI_CPUS")})
+            if before is not None:
+                r["prefix_cache_before"] = before
+                r["prefix_cache_after"] = prefix_cache_lines(args.host, args.port)
+            f.write(json.dumps(r) + "\n")
+            f.flush()
+            failed = failed or bool(r["error"])
+            u = r["usage"] or {}
+            print("%s %s %s %s rep=%d warm=%s pt=%s ct=%s err=%s" % (
+                args.arm, args.round, r["metric"], phase, rep, warm, u.get("prompt_tokens"),
+                u.get("completion_tokens"), (r["error"] or "")[:120]), file=sys.stderr)
+    return failed
+
+
 def run_batch(args, prompts, rep, warm):
     rows = [None] * len(prompts)
     barrier = threading.Barrier(len(prompts))
@@ -153,11 +231,27 @@ def main():
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--nonce", action="store_true",
                     help="prefix each prompt with a unique nonce line so no prefix cache can hit")
+    ap.add_argument("--ttft", choices=["fresh", "turn2"],
+                    help="A10 TTFT rows: one --select id, deterministic per-rep nonce, concurrency 1")
+    ap.add_argument("--rep-base", type=int, default=0, help="first repetition number (--ttft only)")
+    ap.add_argument("--warm-select", default="", help="prompt id for --ttft warmup requests")
     ap.add_argument("--out", required=True)
     ap.add_argument("--cell-run", default="", help="id of this cell invocation (voiding unit, A2)")
     args = ap.parse_args()
     if args.concurrency < 1 or args.reps < 1 or args.warmup < 0 or args.max_tokens < 1:
         ap.error("concurrency, reps and max-tokens must be positive; warmup must be nonnegative")
+    if args.ttft:
+        byid = {p["id"]: p for p in (json.loads(l) for l in open(args.prompts) if l.strip())}
+        need = [args.select] + (["turn2-assistant", "turn2-new"] if args.ttft == "turn2" else [])
+        need += [args.warm_select] if args.warm_select else []
+        if (args.nonce or args.concurrency != 1 or args.rep_base < 0 or "," in args.select
+                or not all(n in byid for n in need)):
+            ap.error("--ttft takes exactly one --select id present in --prompts (turn2 also needs "
+                     "turn2-assistant and turn2-new), concurrency 1, no --nonce, rep-base >= 0")
+        with open(args.out, "a") as f:
+            return 1 if run_ttft(args, byid, f) else 0
+    if args.rep_base or args.warm_select:
+        ap.error("--rep-base and --warm-select need --ttft")
 
     allp = [json.loads(l) for l in open(args.prompts) if l.strip()]
     if args.select:
@@ -178,7 +272,7 @@ def main():
             for p in sel:
                 t = p["text"]
                 if args.nonce:
-                    t = "Request id %s. Ignore this line.\n" % uuid.uuid4().hex + t
+                    t = NONCE_LINE % uuid.uuid4().hex + t
                 texts.append(t)
             args.prompt_ids = [p["id"] for p in sel]
             for r in run_batch(args, texts, rep, warm):
